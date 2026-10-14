@@ -1,97 +1,115 @@
-# Stock Opportunity Analyzer - Final
+# Stock Opportunity Analyzer
 
-Website phân tích cơ hội đầu tư cổ phiếu Việt Nam phục vụ bài tập môn học. Hệ thống kết hợp phân tích cơ bản, kỹ thuật, điểm số 60/40, BUY/HOLD/SELL, chatbot giải thích, backtest, kiểm thử nhiều mã và báo cáo PDF có bảng nguồn dữ liệu.
+Ứng dụng web phân tích cổ phiếu Việt Nam, kết hợp dữ liệu giá và báo cáo tài chính để hiển thị phân tích cơ bản, phân tích kỹ thuật, tín hiệu tham khảo, backtest và báo cáo PDF. Máy chủ web sử dụng HTTP server có sẵn trong Python, mặc định chạy riêng trên máy của bạn tại `127.0.0.1:8050`.
 
-## Chức năng chính
+> Công cụ phục vụ học tập và tham khảo, không phải khuyến nghị đầu tư cá nhân hóa.
 
-1. **Trang tổng quan**: tìm mã, tên doanh nghiệp, ngành, sàn, giá gần nhất, tín hiệu, điểm tổng hợp, rủi ro, thời điểm cập nhật.
-2. **Thông tin doanh nghiệp**: hồ sơ hoạt động, ngày niêm yết, số cổ phiếu lưu hành, vốn hóa ước tính khi nguồn cung cấp.
-3. **Phân tích cơ bản**: tăng trưởng doanh thu/thu nhập, LNST, ROE, ROA, D/E, P/E, P/B và bảng 3-5 năm khi đủ dữ liệu.
-4. **Phân ngành chấm điểm**: ngân hàng/chứng khoán/bảo hiểm/tài chính khác không bị áp D/E như doanh nghiệp phi tài chính; phân loại dùng metadata ngành và danh sách mã dự phòng.
-5. **Phân tích kỹ thuật**: nến, volume, MA20, MA50, RSI14, xác nhận khối lượng và giải thích xu hướng.
-6. **Điểm tổng hợp**: `S = 0.6F + 0.4T`, có độ phủ dữ liệu và quy tắc chặn tín hiệu khi dữ liệu chưa đủ.
-7. **Tin tức doanh nghiệp**: lấy qua `VNStock Reference().company(symbol).news()`; tin tức là bối cảnh, chưa cộng/trừ trực tiếp vào điểm.
-8. **Báo cáo PDF**: format equity-research gọn, có luận điểm đầu tư, rủi ro, tài chính, kỹ thuật, tin tức và **bảng nguồn dữ liệu** ở cuối.
-9. **Backtest**: 1/3/5 năm cho một mã; giảm look-ahead bias bằng cách chỉ dùng kỳ tài chính được giả định đã công bố.
-10. **Kiểm thử nhiều mã**: endpoint và bảng web chạy cùng engine trên FPT/MWG/HPG/VCB/MBB/SSI/BVH hoặc danh sách tự chọn.
-11. **Module thu thập đa mã độc lập**: `multi_stock_collector.py`, tách khỏi scoring/web.
-12. **vn-annual-report-miner**: tích hợp tùy chọn qua CLI `arminer`; hệ thống chỉ ghi nguồn này là "đã dùng" khi truy vấn thực sự thành công.
+## Tính năng
 
-## Cài đặt
+- Tìm kiếm mã và xem hồ sơ doanh nghiệp, tài chính cơ bản, xu hướng giá, chỉ báo kỹ thuật và tin tức.
+- Chấm điểm cơ bản/kỹ thuật theo trọng số 60/40 và hiển thị độ phủ dữ liệu.
+- Xem dự phóng, định giá chuyên sâu khi đủ điều kiện, cùng bảng chi tiết số liệu lịch sử.
+- Chạy backtest, so sánh cổ phiếu cùng ngành và xuất báo cáo PDF.
+- Dùng chatbot giải thích kết quả; một số tính năng AI được cải thiện khi cấu hình API key.
 
-```bash
-pip install -r requirements.txt
-copy .env.example .env   # Windows
-python web_app.py
+## Yêu cầu
+
+- Windows 10/11 và Python 3.10 trở lên.
+- Kết nối Internet để cài thư viện và lấy dữ liệu thị trường.
+- Không cần cài Node.js, Flask hoặc cơ sở dữ liệu riêng để chạy web.
+
+## Cài đặt trên Windows
+
+Mở PowerShell tại thư mục dự án có chứa `web_app.py` và `requirements.txt`. Nếu vừa clone toàn bộ repository GitHub, chạy:
+
+```powershell
+cd Stock_Opportunity_Analyzer_Final\Stock_Opportunity_Analyzer_Final
 ```
 
-Mở:
+Nếu bạn đã ở thư mục có `web_app.py`, bỏ qua lệnh `cd`. Tạo môi trường ảo và cài thư viện:
+
+```powershell
+py -3 --version
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+Các lệnh dùng trực tiếp Python trong `.venv`, nên không cần bật môi trường ảo hay thay đổi Execution Policy của PowerShell. Nếu `py -3 --version` không chạy được, cài Python 3.10 trở lên từ <https://www.python.org/downloads/> rồi mở lại PowerShell.
+
+## Cấu hình (không bắt buộc)
+
+Web có thể khởi động mà không cần API key. Dữ liệu thị trường vẫn cần kết nối Internet và có thể chịu giới hạn truy cập/quota của nguồn dữ liệu.
+
+Để bật hoặc cải thiện các tính năng AI, tạo file `.env` trong thư mục chứa `web_app.py` bằng Notepad, rồi thêm những biến bạn có key:
+
+```dotenv
+GEMINI_API_KEY=điền_key_Gemini_của_bạn_nếu_muốn_dùng
+GROQ_API_KEY=điền_key_Groq_của_bạn_nếu_muốn_dùng
+```
+
+- `GEMINI_API_KEY`: dùng cho một số phần bổ sung thông tin doanh nghiệp và phân tích tin tức.
+- `GROQ_API_KEY`: dùng cho câu trả lời chatbot qua Groq; chatbot vẫn có thể trả lời theo quy tắc khi không có key.
+- `VNSTOCK_API_KEY`: tùy chọn; có thể cấu hình để dùng quota VNStock phù hợp với tài khoản của bạn.
+- `TELEGRAM_BOT_TOKEN`: chỉ cần khi chạy Telegram bot, không cần để chạy web.
+
+Không đưa `.env` hoặc API key lên GitHub, không chia sẻ key trong ảnh chụp màn hình hay chat. File `.env` đã được loại khỏi Git bằng `.gitignore`.
+
+Một số tùy chọn máy chủ có thể đặt trong `.env`:
+
+```dotenv
+DASHBOARD_HOST=127.0.0.1
+DASHBOARD_PORT=8050
+```
+
+`127.0.0.1` chỉ cho phép truy cập từ máy đang chạy ứng dụng. Không đổi host sang địa chỉ công khai nếu chưa cấu hình bảo vệ và hiểu rõ rủi ro khi mở máy chủ ra Internet.
+
+## Chạy website
+
+Từ thư mục có `web_app.py`, chạy:
+
+```powershell
+.\.venv\Scripts\python.exe web_app.py
+```
+
+Giữ cửa sổ PowerShell đang chạy máy chủ, rồi mở:
+
+- Trang chủ: <http://127.0.0.1:8050/>
+- Trang phân tích mẫu: <http://127.0.0.1:8050/analysis/FPT>
+- Kiểm tra máy chủ: <http://127.0.0.1:8050/healthz>
+
+Nhập mã cổ phiếu trên trang chủ để phân tích mã khác. Dừng máy chủ bằng `Ctrl+C`.
+
+## Xử lý lỗi thường gặp
+
+- **`No module named 'google'` hoặc `No module named 'vnstock'`:** kiểm tra đang ở đúng thư mục dự án và chạy lại `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`.
+- **Cổng 8050 đang được sử dụng:** đóng tiến trình đang dùng cổng đó hoặc đặt `DASHBOARD_PORT=8051` trong `.env`, sau đó mở `http://127.0.0.1:8051/`.
+- **Thiếu dữ liệu/mã không phân tích được:** kiểm tra Internet, mã cổ phiếu và thử lại sau; nguồn dữ liệu bên ngoài có thể giới hạn quota hoặc tạm thời gián đoạn.
+- **Chatbot/AI không có phản hồi AI:** kiểm tra API key tương ứng trong `.env`. Web và các phần phân tích không yêu cầu Telegram token.
+- **PowerShell không nhận `py`:** cài Python từ trang chính thức, bật Python Launcher trong bộ cài nếu có, rồi mở cửa sổ PowerShell mới.
+
+## Chạy kiểm thử
+
+Một số kiểm thử tự chạy của dự án có thể chạy bằng:
+
+```powershell
+.\.venv\Scripts\python.exe selftests.py
+.\.venv\Scripts\python.exe investment_selftests.py
+```
+
+## Cấu trúc chính
 
 ```text
-http://127.0.0.1:8050/
-http://127.0.0.1:8050/analysis/FPT
+web_app.py                    Điểm khởi chạy website
+dashboard_server.py           HTTP routes và API
+investment_analysis.py        Phân tích và chấm điểm
+stock_service.py               Lấy dữ liệu giá/thị trường
+chart_service.py               Chuẩn bị dữ liệu biểu đồ
+valuation_forecast_service.py  Dự phóng và định giá
+news_service.py                Tin tức doanh nghiệp
+report_pdf.py                  Báo cáo PDF
+requirements.txt               Thư viện Python
+data/valuation_reference.json  Tham chiếu định giá
+templates/                     Giao diện web
+static/                        Tài nguyên giao diện/biểu đồ
 ```
-
-## Các API chính
-
-```text
-GET  /api/analysis/FPT
-GET  /api/backtest/FPT?years=3
-GET  /api/validate?symbols=FPT,VCB,SSI,MWG
-GET  /api/collect?symbols=FPT,VCB,SSI
-GET  /report/FPT.pdf
-POST /api/chat
-```
-
-## Tích hợp vn-annual-report-miner (tùy chọn)
-
-Theo nguồn tham khảo của đề, có thể cài riêng:
-
-```bash
-git clone https://github.com/Tumiqa/vn-annual-report-miner.git
-cd vn-annual-report-miner
-pip install -e .
-```
-
-Sau đó đặt trong `.env`:
-
-```text
-ARMINER_ENABLED=1
-```
-
-Dashboard sẽ thử `arminer catalog search --ticker <MÃ>` và ghi trạng thái nguồn vào báo cáo. Nếu chưa cài, website vẫn hoạt động bình thường và **không tuyên bố sai rằng arminer đã được dùng**.
-
-## Các file mới quan trọng
-
-- `company_info_service.py`: thông tin doanh nghiệp từ VNStock Reference.
-- `news_service.py`: tin tức doanh nghiệp.
-- `annual_report_service.py`: bridge tùy chọn tới vn-annual-report-miner.
-- `multi_stock_collector.py`: thu thập raw data nhiều mã độc lập.
-- `multi_stock_validation.py`: bảng QA/chấm điểm nhiều mã.
-- `investment_analysis.py`: engine cơ bản + kỹ thuật + 60/40 + phân ngành.
-- `report_pdf.py`: PDF theo format báo cáo phân tích và bảng nguồn.
-- `templates/investment_dashboard.html`: dashboard hoàn chỉnh.
-
-## Kiểm thử offline
-
-```bash
-python selftests.py
-python investment_selftests.py
-python final_selftests.py
-```
-
-Kỳ vọng hiện tại:
-
-```text
-22 nhóm legacy PASS
-4 nhóm investment PASS
-4 nhóm final PASS
-```
-
-## Lưu ý phương pháp
-
-- P/E thấp không tự động là tốt; P/E/P/B cần được đọc cùng tăng trưởng và rủi ro.
-- RSI > 70 không tự động BUY, RSI < 30 không tự động SELL.
-- D/E không được dùng máy móc cho ngân hàng/chứng khoán/bảo hiểm.
-- Trọng số và ngưỡng 60/40 là thiết kế khởi đầu để kiểm thử, chưa được chứng minh tối ưu cho mọi cổ phiếu.
-- Kết quả chỉ phục vụ phân tích học thuật/tham khảo, không bảo đảm lợi nhuận.
