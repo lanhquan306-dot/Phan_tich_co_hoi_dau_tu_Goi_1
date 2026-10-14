@@ -95,19 +95,37 @@ def _find_class(class_name: str, module_names: Iterable[str]):
 
 def _provider(class_name: str, source: str, symbol: str):
     """Tạo đối tượng Quote/Trading đúng nguồn. Trả về (object, backend)."""
+    # 1. Với vnstock 4.x chuẩn: Quote có thể import trực tiếp từ vnstock
+    try:
+        from vnstock import Quote
+        if class_name == "Quote":
+            # Khởi tạo Quote với symbol và source tương ứng (TCBS, VND, VCI...)
+            try:
+                obj = Quote(symbol=symbol, source=source.lower())
+                return obj, f"vnstock.{source}"
+            except Exception:
+                obj = Quote(symbol=symbol)
+                return obj, "vnstock.default"
+    except Exception:
+        pass
+
+    # 2. Cơ chế fallback cũ nếu dùng phiên bản khác
     if source == "MAS":
         try:
             cls, backend = _find_class(class_name, ["vnstock_data"])
         except ProviderUnavailable as exc:
             raise ProviderUnavailable("MAS cần gói vnstock_data (Sponsor)") from exc
-    elif source in {"VCI", "KBS"}:
+    elif source in {"VCI", "KBS", "TCBS", "VND"}:
         sub = source.lower()
         cls, backend = _find_class(class_name, [
-            f"vnstock.api.{class_name.lower()}", "vnstock",
-            f"vnstock.explorer.{sub}", f"vnstock.explorer.{sub}.{class_name.lower()}",
+            "vnstock",
+            f"vnstock.api.{class_name.lower()}",
+            f"vnstock.explorer.{sub}",
+            f"vnstock.explorer.{sub}.{class_name.lower()}",
         ])
     else:
         raise ProviderUnavailable(f"Nguồn chưa hỗ trợ: {source}")
+
     return _instantiate(cls, symbol=symbol, source=source), backend
 
 

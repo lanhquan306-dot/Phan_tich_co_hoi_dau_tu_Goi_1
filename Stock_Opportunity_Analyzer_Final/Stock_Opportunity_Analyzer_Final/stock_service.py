@@ -257,7 +257,7 @@ def confirmed_bars(df):
 # 3. Danh sách mã và nhận diện mã
 # =====================================================================
 def _load_listing_map() -> dict[str, dict]:
-    """{mã: {symbol, exchange, name, all_names}} cho các mã HOSE/HNX."""
+    """{mã: {symbol, exchange, name, industry, all_names}} cho các mã HOSE/HNX."""
     result = vn_call(sa.fetch_listing)
     df = flatten_columns(pd.DataFrame(result.data))
     if df.empty:
@@ -272,6 +272,14 @@ def _load_listing_map() -> dict[str, dict]:
     exchange_cols = column("exchange", "san")
     name_cols = column("organ name", "organ short name", "company name", "name")
 
+    # Ưu tiên lấy ngành chính (cấp 2) chuẩn BCTC để đồng bộ với Code N
+    industry_cols = column(
+        "icb name2", "icb name 2", "icb_name2",
+        "icb name3", "icb name 3", "icb_name3",
+        "icb name", "icb_name",
+        "industry name", "industry", "sector", "sector name"
+    )
+
     out: dict[str, dict] = {}
     for _, row in df.iterrows():
         symbol = str(row[symbol_cols[0]]).strip().upper()
@@ -282,8 +290,22 @@ def _load_listing_map() -> dict[str, dict]:
             continue
         names = [str(row.get(c, "") or "").strip() for c in name_cols]
         names = [n for n in names if n and n.lower() != "nan"]
-        out[symbol] = {"symbol": symbol, "exchange": exchange or "UNKNOWN",
-                       "name": names[0] if names else "", "all_names": names}
+
+        # Trích xuất nhãn ngành từ danh sách cột có sẵn
+        industry = ""
+        for icol in industry_cols:
+            val = str(row.get(icol, "") or "").strip()
+            if val and val.lower() not in {"nan", "none", ""}:
+                industry = val
+                break
+
+        out[symbol] = {
+            "symbol": symbol,
+            "exchange": exchange or "UNKNOWN",
+            "name": names[0] if names else "",
+            "industry": industry,
+            "all_names": names,
+        }
     return out
 
 
@@ -363,6 +385,36 @@ def resolve_symbol(text: str) -> dict:
         return {"status": "suggest", "typed": tokens[0], "suggestions": close}
     return {"status": "none"}
 
+def _fetch_company_profile_desc(symbol: str) -> str:
+    """Tự động đọc mô tả hoạt động kinh doanh từ dữ liệu công ty (VCI / VNStock)."""
+    try:
+        from vnstock.explorer.vci.company import Company as VCICompany
+        comp = vn_call(VCICompany, symbol)
+        df_prof = vn_call(comp.profile)
+        if df_prof is not None and not df_prof.empty:
+            row = df_prof.iloc[0].to_dict()
+            desc = row.get("business_model") or row.get("main_service") or row.get("history_dev") or ""
+            if desc:
+                return str(desc).strip()
+    except Exception:
+        pass
+
+    try:
+        from vnstock import Vnstock
+        stock = Vnstock().stock(symbol=symbol, source='VCI')
+        df = stock.company.profile()
+        if df is not None and not df.empty:
+            row = df.iloc[0].to_dict()
+            return str(row.get("business_model") or row.get("main_service") or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def get_company_profile_desc(symbol: str) -> str:
+    """Lấy mô tả hoạt động qua TTLCache (lưu 24 giờ trong RAM) để đạt tốc độ cao nhất."""
+    desc, _, _ = cached_call(f"profile_desc:{symbol.upper()}", 86400, lambda: _fetch_company_profile_desc(symbol.upper()))
+    return desc or ""
 
 # =====================================================================
 # 4. Lịch sử giá, VN-Index, bảng giá
@@ -384,7 +436,7 @@ def fetch_history_range(symbol: str, start: str, end: str, *, index: bool = Fals
 
 def _load_history(symbol: str) -> pd.DataFrame:
     # 620 ngày lịch thường > 400 phiên: đủ cho MA150, đỉnh 52 tuần và bộ lọc lịch sử.
-    out = _fetch_ohlcv(symbol, PRICE_HISTORY_SOURCES, 620, equity=True)
+    out = _fetch_ohlcv(symbol, ["TCBS", "VND"], 620, equity=True)
     if len(out) < STRATEGY.min_history:
         # Nguồn trả thiếu phiên: thử lại một cửa sổ dài hơn.
         longer = _fetch_ohlcv(symbol, PRICE_HISTORY_SOURCES, 1500, equity=True)
@@ -426,24 +478,29 @@ def _empty_quote(symbol: str, **extra) -> dict:
 
 
 def _load_quote(symbol: str) -> dict:
-    result = vn_call(sa.fetch_single_quote, symbol, sources=PRICE_BOARD_SOURCES)
-    row = _quote_row(result.data)
-    price = pick(row, ["match_price", "price", "last_price", "close", "current_price", "matched_price"], price=True)
-    ref = pick(row, ["reference_price", "reference", "ref_price", "previous_close", "prior_close"], price=True)
-    pct = pick(row, ["percent_change", "percent_price_change", "change_percent", "pct_change"])
-    if pct is None and price is not None and ref:
-        pct = (price / ref - 1.0) * 100
-    return _empty_quote(
-        symbol,
-        price=price,
-        reference=ref,
-        open=pick(row, ["open", "open_price"], price=True),
-        high=pick(row, ["high", "highest", "high_price"], price=True),
-        low=pick(row, ["low", "lowest", "low_price"], price=True),
-        volume=pick(row, ["volume", "total_volume", "volume_accumulated", "accumulated_volume", "match_volume"]),
-        percent_change=pct,
-        data_source=result.source,
-    )
+    try:
+        result = vn_call(sa.fetch_single_quote, symbol, sources=["TCBS", "VND"])
+        if result and getattr(result, "data", None) is not None:
+            row = _quote_row(result.data)
+            price = pick(row, ["match_price", "price", "last_price", "close", "current_price", "matched_price"], price=True)
+            ref = pick(row, ["reference_price", "reference", "ref_price", "previous_close", "prior_close"], price=True)
+            pct = pick(row, ["percent_change", "percent_price_change", "change_percent", "pct_change"])
+            if pct is None and price is not None and ref:
+                pct = (price / ref - 1.0) * 100
+            return _empty_quote(
+                symbol,
+                price=price,
+                reference=ref,
+                open=pick(row, ["open", "open_price"], price=True),
+                high=pick(row, ["high", "highest", "high_price"], price=True),
+                low=pick(row, ["low", "lowest", "low_price"], price=True),
+                volume=pick(row, ["volume", "total_volume", "volume_accumulated", "accumulated_volume", "match_volume"]),
+                percent_change=pct,
+                data_source=result.source,
+            )
+    except Exception:
+        pass
+    return _empty_quote(symbol)
 
 
 def get_quote(symbol: str):
@@ -833,10 +890,16 @@ def analyze_symbol(symbol: str, position: dict | None = None) -> dict:
                         "Delta ROC63 dùng mốc VN-Index gần nhất.")
 
     price, volume = quote.get("price"), quote.get("volume")
+    
+    # Tự động lấy mô tả hoạt động kinh doanh từ cache/VCI
+    profile_desc = get_company_profile_desc(s)
+
     result = {
         "symbol": s,
         "company_name": meta.get("name", ""),
         "exchange": meta.get("exchange", "UNKNOWN"),
+        "industry": meta.get("industry", ""),       # <-- Thêm dòng này để truyền ngành chuẩn
+        "profile": profile_desc,                   # <-- Thêm dòng này để giao diện bật khung mô tả
         "confirmed_bar_date": bar_date(confirmed),
         "index_bar_date": bar_date(index),
         "quote": quote,

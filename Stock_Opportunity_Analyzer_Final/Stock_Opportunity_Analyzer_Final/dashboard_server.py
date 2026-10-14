@@ -36,6 +36,8 @@ import opportunity_backtest
 import stock_service as service
 import multi_stock_validation
 import multi_stock_collector
+import json
+import multi_stock_validation as validator
 
 log = logging.getLogger("fintech-dashboard")
 BASE_DIR = Path(__file__).resolve().parent
@@ -191,6 +193,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 log.exception("backtest %s", symbol)
                 return self._send_json(500, {"error": type(exc).__name__, "message": str(exc)[:280]})
 
+        match = re.fullmatch(r"/api/peers/([^/]+)", path)
+        if match:
+            symbol, error = _resolve_symbol_or_error(match.group(1))
+            if error:
+                return self._send_json(error[0], {"error": "invalid_symbol"})
+            try:
+                peers = multi_stock_validation.get_peer_symbols(symbol, limit=5)
+                return self._send_json(200, {"symbol": symbol, "symbols": peers})
+            except Exception as exc:
+                log.exception("peers %s", symbol)
+                return self._send_json(500, {"error": type(exc).__name__, "message": str(exc)[:280]})
+            
         if path == "/api/validate":
             try:
                 raw = parse_qs(url.query).get("symbols", [""])[0]

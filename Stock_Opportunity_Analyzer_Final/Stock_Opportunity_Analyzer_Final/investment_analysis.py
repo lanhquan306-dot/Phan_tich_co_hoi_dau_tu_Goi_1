@@ -17,6 +17,9 @@ when important information is missing.
 from __future__ import annotations
 
 import json
+import threading
+from math import ceil
+from statistics import median
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -30,6 +33,7 @@ import news_service
 import annual_report_service
 from config import BANK_SYMBOLS, INSURANCE_SYMBOLS, SECURITIES_SYMBOLS
 from utils import normalize_text, to_float
+from valuation_forecast_service import ValuationForecastService
 
 BASE_DIR = Path(__file__).resolve().parent
 REFERENCE_PATH = BASE_DIR / "data" / "valuation_reference.json"
@@ -45,8 +49,22 @@ REVENUE_REGULAR = [
     "doanh thu ban hang va cung cap dich vu", "net revenue", "revenue",
 ]
 REVENUE_FINANCIAL = [
-    "tong thu nhap hoat dong", "tong doanh thu hoat dong", "thu nhap hoat dong",
-    "operating income", "total operating income", "operating revenue",
+    "doanh thu hoat dong",
+    "tong doanh thu hoat dong",
+    "doanh thu thuan hoat dong kinh doanh",
+    "doanh thu thuan",
+    "doanh thu",
+    "tong thu nhap hoat dong",
+    "tong thu nhap hoat dong toi",
+    "thu nhap hoat dong",
+    "thu nhap lai va cac khoan thu nhap tuong tu",
+    "thu nhap lai thuan",
+    "doanh thu phi bao hiem thuan",
+    "doanh thu hoat dong kinh doanh bao hiem",
+    "operating income",
+    "total operating income",
+    "operating revenue",
+    "revenue",
 ]
 TOTAL_ASSET_PHRASES = ["tong cong tai san", "tong tai san", "total assets"]
 RATIO_PHRASES = {
@@ -60,11 +78,6 @@ RATIO_PHRASES = {
 
 
 def company_type(symbol: str, industry: str = "", profile: str = "") -> str:
-    """Classify financial vs non-financial firms using metadata first, ticker lists as fallback.
-
-    Metadata makes the rule work for newly listed financial firms; curated ticker lists
-    remain useful when the provider returns only a broad or missing sector label.
-    """
     s = symbol.upper()
     text = normalize_text(f"{industry} {profile}")
     if s in BANK_SYMBOLS or any(k in text for k in ("ngan hang", "banking", "commercial bank", "bank ")):
@@ -125,7 +138,6 @@ def _compute_roa_ttm(income_q: pd.DataFrame, balance_q: pd.DataFrame) -> float |
 
 
 def _load_ratio_table(symbol: str) -> pd.DataFrame:
-    """Load ratio table while tolerating minor vnstock 4.x signature differences."""
     from vnstock import Fundamental
 
     equity = Fundamental().equity(symbol)
@@ -165,7 +177,6 @@ def _latest_ratio_value(df: pd.DataFrame, phrases: list[str]) -> float | None:
                 if normalize_text(col) == key:
                     return to_float(row.get(col))
 
-    # vnstock_data / tidy layouts may expose period/name/value rows.
     if df is None or df.empty:
         return None
     x = service.flatten_columns(df)
@@ -191,22 +202,95 @@ def _pct_ratio(x: float | None) -> float | None:
     return v * 100 if 0 < abs(v) <= 1.5 else v
 
 
-def _valuation_reference(kind: str) -> dict[str, float]:
+_industry_reference_lock = threading.Lock()
+
+
+def _refresh_industry_valuation_reference(symbol: str, industry_code: str, cache_key: str) -> None:
+    try:
+        peers = company_info_service.get_industry_peer_symbols(industry_code, symbol)
+    except Exception:
+        peers = []
+
+    values: dict[str, list[float]] = {"pe": [], "pb": []}
+    used_peers = []
+    for peer in peers:
+        try:
+            ratio, _, _ = get_ratio_table(peer)
+        except Exception:
+            continue
+        used_peers.append(peer)
+        for key in values:
+            value = _latest_ratio_value(ratio, RATIO_PHRASES[key])
+            if value is not None and value > 0:
+                values[key].append(value)
+
+    reference: dict[str, Any] = {
+        "industry_code": industry_code,
+        "peer_symbols": used_peers,
+        "peer_count": len(peers),
+        "source": "VNStock ratio table",
+        "updated_at": service.now_vn().date().isoformat() if hasattr(service, "now_vn") else datetime.now().date().isoformat(),
+    }
+    required_sample = max(2, ceil(len(peers) * 0.5)) if peers else 2
+    for key, samples in values.items():
+        reference[f"{key}_sample_size"] = len(samples)
+        if len(samples) >= required_sample:
+            reference[key] = median(samples)
+
+    try:
+        if hasattr(service, "_cache"):
+            service._cache.set(cache_key, reference)
+    except Exception:
+        pass
+
+
+def _industry_valuation_reference(symbol: str, industry_code: str) -> dict[str, Any]:
+    cache_key = f"industry-valuation:v2:{industry_code}"
+    cached = getattr(service, "_cache", {}).get(cache_key, 86_400) if hasattr(getattr(service, "_cache", None), "get") else None
+    if isinstance(cached, dict) and cached.get("updated_at"):
+        return cached
+
+    _refresh_industry_valuation_reference(symbol, industry_code, cache_key)
+    refreshed = getattr(service, "_cache", {}).get(cache_key, 86_400) if hasattr(getattr(service, "_cache", None), "get") else None
+    if isinstance(refreshed, dict):
+        return refreshed
+    return {"industry_code": industry_code, "refreshing": True}
+
+
+def _valuation_reference(
+    kind: str,
+    symbol: str | None = None,
+    industry_code: str | None = None,
+) -> dict[str, Any]:
     try:
         data = json.loads(REFERENCE_PATH.read_text(encoding="utf-8"))
     except Exception:
-        return {}
-    ref = data.get(kind) or data.get("default") or {}
-    return {k: v for k in ("pe", "pb") if (v := to_float(ref.get(k))) is not None and v > 0}
+        data = {}
+    fallback = data.get(kind) or data.get("default") or {}
+    reference = {k: v for k in ("pe", "pb") if (v := to_float(fallback.get(k))) is not None and v > 0}
+    if symbol and industry_code:
+        reference.update(_industry_valuation_reference(symbol, str(industry_code)))
+    return reference
+
+
+def _valuation_reference_note(
+    metric: str,
+    current: float | None,
+    reference: dict[str, Any],
+    industry: str,
+) -> str:
+    value = to_float(reference.get(metric))
+    if value is None:
+        return "Chưa có tham chiếu ngành; dùng dải định giá tuyệt đối để chấm thử nghiệm."
+    group = industry or f"ngành {reference.get('industry_code', '')}".strip()
+    if current is None:
+        return f"Trung vị ngành {group}: {value:.2f}x."
+    relative = current / value - 1
+    comparison = "thấp hơn" if relative < -0.1 else "cao hơn" if relative > 0.1 else "xấp xỉ"
+    return f"{current:.2f}x {comparison} trung vị ngành {group} {value:.2f}x."
 
 
 def _load_company_profile(symbol: str) -> dict[str, str]:
-    """Best-effort company metadata.
-
-    The free vnstock v4 Unified UI exposes Reference().company(symbol).overview().
-    Because schemas can vary by provider, this helper only extracts a few fields
-    and silently falls back to the listing table when unavailable.
-    """
     try:
         try:
             from vnstock import Reference
@@ -288,14 +372,12 @@ def _valuation_points(value, weight, key: str, reference: float | None):
 
 
 def _weights(kind: str) -> dict[str, float]:
-    """Weights sum to 60 points (fundamental block)."""
     if kind == "regular":
         return {
             "revenue_growth": 10, "profit_growth": 12,
             "roe": 9, "roa": 6, "de": 7,
             "pe": 8, "pb": 8,
         }
-    # D/E is intentionally omitted because structural leverage is not comparable.
     return {
         "revenue_growth": 9, "profit_growth": 13,
         "roe": 12, "roa": 8,
@@ -312,7 +394,6 @@ def _criterion(name, value, weight, points, unit="", note="", group=""):
 
 
 def _annual_values(df: pd.DataFrame, phrases: list[str], *, max_years: int = 6) -> dict[int, float]:
-    """Sum four quarters by year for flow items, requiring all four quarters."""
     row = service._find_report_row(df, phrases)
     cols = service._quarter_columns(df)
     if row is None or not cols:
@@ -334,7 +415,6 @@ def _annual_values(df: pd.DataFrame, phrases: list[str], *, max_years: int = 6) 
 
 
 def _year_end_values(df: pd.DataFrame, phrases: list[str], *, max_years: int = 6) -> dict[int, float]:
-    """Use Q4 as year-end value for balance-sheet items."""
     row = service._find_report_row(df, phrases)
     cols = service._quarter_columns(df)
     if row is None or not cols:
@@ -398,56 +478,160 @@ def _financial_history(income: pd.DataFrame, balance: pd.DataFrame, kind: str, m
     return rows
 
 
-def _economic_comments(criteria: dict[str, dict], kind: str, history: list[dict]) -> dict[str, list[str]]:
+def _economic_comments(criteria: dict[str, dict], kind: str, history: list[dict], target_price: dict | None = None, signal_code: str = "") -> dict[str, list[str]]:
     out = {"growth": [], "profitability_leverage": [], "valuation": []}
+
+    def fmt_pct(x: float) -> str:
+        return f"{x:+.1f}%"
+
+    # =========================================================================
+    # 1. NHÓM TĂNG TRƯỞNG (growth)
+    # =========================================================================
     rg = to_float((criteria.get("revenue_growth") or {}).get("value"))
     pg = to_float((criteria.get("profit_growth") or {}).get("value"))
-    if rg is not None and pg is not None:
-        if rg > 0 and pg > rg + 10:
-            out["growth"].append(
-                f"Doanh thu/thu nhập tăng {rg:.1f}% trong khi LNST tăng {pg:.1f}%; lợi nhuận đang tăng nhanh hơn quy mô hoạt động. Cần kiểm tra thêm biên lợi nhuận và tính bền vững của mức tăng này."
-            )
-        elif rg > 0 and pg > 0:
-            out["growth"].append(f"Doanh thu/thu nhập và LNST cùng tăng ({rg:.1f}% và {pg:.1f}%), cho thấy tăng trưởng hiện có sự đồng thuận giữa quy mô và lợi nhuận.")
-        elif rg > 0 >= pg:
-            out["growth"].append(f"Doanh thu/thu nhập tăng {rg:.1f}% nhưng LNST giảm {abs(pg):.1f}%; hiệu quả chuyển doanh thu thành lợi nhuận đang chịu áp lực.")
-        elif rg < 0 and pg < 0:
-            out["growth"].append("Doanh thu/thu nhập và LNST cùng suy giảm; cần thận trọng với sức khỏe tăng trưởng ngắn hạn.")
-    elif rg is not None:
-        out["growth"].append(f"Doanh thu/thu nhập thay đổi {rg:+.1f}% YoY; chưa đủ dữ liệu LNST để đánh giá chất lượng tăng trưởng đầy đủ.")
 
+    if rg is not None and pg is not None:
+        gap = pg - rg
+        if rg > 0 and pg > 0:
+            if gap >= 5.0:
+                out["growth"].append(
+                    f"Doanh thu/thu nhập tăng {rg:.1f}% và LNST tăng {pg:.1f}%, cao hơn tốc độ tăng doanh thu {gap:.1f} điểm phần trăm. "
+                    "Lợi nhuận đang tăng nhanh hơn quy mô hoạt động; cần đối chiếu biên lợi nhuận, chi phí và thu nhập bất thường để đánh giá chất lượng tăng trưởng."
+                )
+            elif gap <= -5.0:
+                out["growth"].append(
+                    f"Doanh thu/thu nhập tăng {rg:.1f}% nhưng LNST chỉ tăng {pg:.1f}%, thấp hơn {abs(gap):.1f} điểm phần trăm. "
+                    "Lợi nhuận chưa theo kịp tốc độ mở rộng hoạt động; cần kiểm tra áp lực chi phí, biên lợi nhuận và cơ cấu thu nhập."
+                )
+            else:
+                out["growth"].append(
+                    f"Doanh thu/thu nhập tăng {rg:.1f}% và LNST tăng {pg:.1f}%, với chênh lệch {gap:+.1f} điểm phần trăm. "
+                    "Hai chỉ tiêu biến động tương đối đồng pha; cần xem thêm diễn biến biên lợi nhuận và dữ liệu nhiều kỳ để xác định mức tăng có bền vững hay không."
+                )
+        elif rg > 0 and pg <= 0:
+            pg_str = "đi ngang" if pg == 0 else f"giảm {fmt_pct(pg)}"
+            out["growth"].append(
+                f"Doanh thu/thu nhập tăng {rg:.1f}% nhưng LNST {pg_str}. "
+                "Hoạt động mở rộng chưa chuyển hóa thành tăng trưởng lợi nhuận; cần rà soát chi phí, biên lợi nhuận và các khoản thu nhập hoặc chi phí bất thường."
+            )
+        elif rg < 0 and pg > 0:
+            out["growth"].append(
+                f"Doanh thu/thu nhập {fmt_pct(rg)} trong khi LNST tăng {pg:.1f}%. "
+                "Lợi nhuận cải thiện dù quy mô hoạt động chưa tăng tương ứng; cần xác định mức cải thiện đến từ hoạt động cốt lõi, tiết giảm chi phí hay yếu tố không thường xuyên."
+            )
+        elif rg < 0 and pg < 0:
+            out["growth"].append(
+                f"Doanh thu/thu nhập giảm {abs(rg):.1f}% và LNST giảm {abs(pg):.1f}%, cho thấy cả quy mô hoạt động và lợi nhuận đều chịu áp lực. "
+                "Cần theo dõi nguyên nhân suy giảm, xu hướng các kỳ tiếp theo và khả năng phục hồi."
+            )
+        else:
+            out["growth"].append(
+                "Tăng trưởng doanh thu/thu nhập và lợi nhuận chưa cho thấy sự cải thiện rõ rệt; cần đối chiếu thêm số liệu các kỳ trước để xác định xu hướng."
+            )
+    elif rg is not None or pg is not None:
+        available = f"doanh thu/thu nhập {fmt_pct(rg)}" if rg is not None else f"LNST {fmt_pct(pg)}"
+        out["growth"].append(
+            f"Chỉ xác định được {available}. Thiếu chỉ tiêu tăng trưởng còn lại nên chưa thể đánh giá liệu quy mô hoạt động có chuyển hóa tương ứng thành lợi nhuận hay không."
+        )
+    else:
+        out["growth"].append("Chưa đủ dữ liệu tăng trưởng để đánh giá sự thay đổi về quy mô hoạt động và lợi nhuận.")
+
+    # Nhận xét chuỗi lịch sử
+    if len(history) >= 3:
+        recent_years = history[-3:]
+        rev_growths = [to_float(r.get("revenue_growth")) for r in recent_years if r.get("revenue_growth") is not None]
+        if len(rev_growths) >= 2 and all(x > 0 for x in rev_growths):
+            out["growth"].append("Chuỗi năm gần đây cho thấy doanh thu/thu nhập duy trì tăng trưởng dương ở các năm có đủ dữ liệu.")
+
+    # =========================================================================
+    # 2. NHÓM SINH LỜI & ĐÒN BẨY (profitability_leverage)
+    # =========================================================================
     roe = to_float((criteria.get("roe") or {}).get("value"))
     roa = to_float((criteria.get("roa") or {}).get("value"))
     de = to_float((criteria.get("de") or {}).get("value"))
-    if roe is not None:
-        out["profitability_leverage"].append(f"ROE TTM {roe:.1f}% phản ánh mức sinh lời trên vốn chủ sở hữu theo dữ liệu hiện có.")
-    if roa is not None:
-        out["profitability_leverage"].append(f"ROA TTM {roa:.1f}% cho biết hiệu quả tạo lợi nhuận trên tổng tài sản.")
-    if kind == "regular" and de is not None:
-        if de <= 1:
-            out["profitability_leverage"].append(f"D/E {de:.2f}x cho thấy nợ vay chịu lãi chưa vượt vốn chủ sở hữu theo cách tính của hệ thống.")
-        elif de > 1.5:
-            out["profitability_leverage"].append(f"D/E {de:.2f}x tương đối cao; biến động lãi suất và khả năng trả nợ cần được theo dõi.")
-    elif kind != "regular":
-        out["profitability_leverage"].append("D/E không được dùng để chấm điểm vì đòn bẩy là đặc trưng cấu trúc của doanh nghiệp tài chính; hệ thống chuyển trọng số sang ROE, ROA và định giá.")
 
+    # a. Về ROE và ROA
+    if roe is not None and roa is not None:
+        gap_roe_roa = roe - roa
+        if roe > 0 and roa > 0:
+            if gap_roe_roa >= 10.0:
+                out["profitability_leverage"].append(
+                    f"ROE {roe:.1f}% cao hơn ROA {roa:.1f}% {gap_roe_roa:.1f} điểm phần trăm. "
+                    "Khả năng sinh lời trên vốn chủ cao hơn đáng kể so với trên tổng tài sản; cần xem xét cơ cấu nguồn vốn và đặc thù ngành trước khi kết luận về hiệu quả sử dụng vốn."
+                )
+            elif roe >= 15.0 and roa >= 5.0:
+                out["profitability_leverage"].append(
+                    f"ROE {roe:.1f}% và ROA {roa:.1f}% đều dương, cho thấy doanh nghiệp đang tạo lợi nhuận trên cả vốn chủ và tài sản. "
+                    "Nên đối chiếu với dữ liệu lịch sử và mức tham chiếu ngành để xác định vị thế sinh lời."
+                )
+            else:
+                out["profitability_leverage"].append(
+                    f"ROE {roe:.1f}% và ROA {roa:.1f}% đều dương nhưng mức sinh lời cần được đánh giá trong bối cảnh ngành và xu hướng các kỳ trước. "
+                    "Chưa nên kết luận hiệu quả cao hay thấp nếu thiếu mức so sánh phù hợp."
+                )
+        else:
+            out["profitability_leverage"].append(
+                f"ROE {roe:.1f}% và ROA {roa:.1f}% cho thấy ít nhất một chỉ tiêu sinh lời không dương. "
+                "Cần kiểm tra nguyên nhân lỗ, chất lượng lợi nhuận và biến động vốn chủ hoặc tài sản."
+            )
+    elif roe is not None:
+        out["profitability_leverage"].append(
+            f"ROE đạt {roe:.1f}%, phản ánh mức sinh lời trên vốn chủ sở hữu. Do thiếu ROA, chưa thể đối chiếu hiệu quả sinh lời trên vốn chủ với hiệu quả sử dụng tổng tài sản."
+        )
+    elif roa is not None:
+        out["profitability_leverage"].append(
+            f"ROA đạt {roa:.1f}%, phản ánh mức sinh lời trên tổng tài sản. Do thiếu ROE, chưa thể đánh giá đầy đủ hiệu quả sinh lời đối với cổ đông."
+        )
+    else:
+        out["profitability_leverage"].append("Chưa đủ dữ liệu ROE và ROA để đánh giá khả năng sinh lời.")
+
+    # b. Về Đòn bẩy D/E
+    if kind == "regular":
+        if de is not None:
+            if de < 0:
+                out["profitability_leverage"].append(
+                    "D/E âm hoặc không có ý nghĩa thông thường; cần kiểm tra vốn chủ sở hữu và cách tính tỷ lệ trước khi diễn giải đòn bẩy."
+                )
+            elif de <= 0.5:
+                out["profitability_leverage"].append(
+                    f"D/E đạt {de:.2f} lần, cho thấy nợ tương đối thấp so với vốn chủ theo định nghĩa đang sử dụng. Tuy nhiên, vẫn cần đối chiếu dòng tiền và nghĩa vụ thanh toán."
+                )
+            elif de <= 1.5:
+                out["profitability_leverage"].append(
+                    f"D/E đạt {de:.2f} lần. Mức đòn bẩy cần được xem xét cùng khả năng tạo dòng tiền, chi phí lãi vay và đặc điểm ngành để đánh giá sức chịu đựng tài chính."
+                )
+            else:
+                out["profitability_leverage"].append(
+                    f"D/E đạt {de:.2f} lần, cho thấy nợ cao so với vốn chủ theo định nghĩa đang sử dụng. "
+                    "Điều này có thể làm tăng độ nhạy với lãi suất và áp lực trả nợ; cần kiểm tra nợ vay chịu lãi, dòng tiền và khả năng thanh toán trước khi kết luận rủi ro."
+                )
+    else:
+        out["profitability_leverage"].append(
+            "Không dùng D/E theo cùng ngưỡng với doanh nghiệp phi tài chính vì cơ cấu nguồn vốn của ngân hàng, chứng khoán và bảo hiểm có đặc thù riêng. "
+            "Cần đánh giá theo chỉ tiêu an toàn vốn, chất lượng tài sản, thanh khoản và quy định phù hợp với ngành."
+        )
+
+    # =========================================================================
+    # 3. NHÓM ĐỊNH GIÁ (valuation)
+    # =========================================================================
     pe = to_float((criteria.get("pe") or {}).get("value"))
     pb = to_float((criteria.get("pb") or {}).get("value"))
-    pe_note = (criteria.get("pe") or {}).get("note", "")
+    pe_note = (criteria.get("pe") or {}).get("note", "").strip()
+    pb_note = (criteria.get("pb") or {}).get("note", "").strip()
+
     if pe is not None:
-        out["valuation"].append(f"P/E hiện tại {pe:.2f}x. {pe_note}".strip())
+        out["valuation"].append(f"P/E hiện tại {pe:.2f}x. {pe_note}".replace("..", ".").strip())
     if pb is not None:
-        out["valuation"].append(f"P/B hiện tại {pb:.2f}x. {(criteria.get('pb') or {}).get('note','')}".strip())
-    if pe is not None and pe < 12:
+        out["valuation"].append(f"P/B hiện tại {pb:.2f}x. {pb_note}".replace("..", ".").strip())
+
+    if pe is not None and pe < 12.0:
         out["valuation"].append("P/E thấp không tự động đồng nghĩa cổ phiếu rẻ; mức thấp có thể phản ánh kỳ vọng tăng trưởng yếu hoặc rủi ro cao.")
 
-    if len(history) >= 3:
-        rev_g = [to_float(r.get("revenue_growth")) for r in history[-3:]]
-        rev_g = [x for x in rev_g if x is not None]
-        if len(rev_g) >= 2 and all(x > 0 for x in rev_g):
-            out["growth"].append("Chuỗi năm gần đây cho thấy doanh thu/thu nhập duy trì tăng trưởng dương ở các năm có đủ dữ liệu.")
-    return out
+    # Bổ sung nhận xét giá mục tiêu nếu có tín hiệu BUY
+    if str(signal_code).upper() == "BUY" and target_price and target_price.get("method_note"):
+        out["valuation"].append(target_price["method_note"])
 
+    return out
 
 def _technical(frame: pd.DataFrame) -> dict[str, Any]:
     snap = charts.latest_snapshot(frame)
@@ -559,6 +743,8 @@ def _fundamental_analysis(symbol: str, current_price: float | None, profile: dic
     balance = tables.get("balance_q", pd.DataFrame())
     revenue_phrases = REVENUE_FINANCIAL if kind != "regular" else REVENUE_REGULAR
     revenue_growth = _growth_yoy(income, revenue_phrases)
+    if revenue_growth is None and kind != "regular":
+        revenue_growth = _growth_yoy(income, REVENUE_REGULAR)
     profit_growth = _growth_yoy(income, service._NPAT_PARENT_PHRASES)
     if profit_growth is None:
         profit_growth = _growth_yoy(income, service._NPAT_TOTAL_PHRASES)
@@ -586,12 +772,15 @@ def _fundamental_analysis(symbol: str, current_price: float | None, profile: dic
     if roa is None:
         roa = ratio_roa
 
-    # Current-price-relative valuation. If provider already returns P/E/P/B, it is used as fallback.
     pe = current_price / eps if current_price and eps and eps > 0 else reported_pe
     pb = current_price / bvps if current_price and bvps and bvps > 0 else reported_pb
 
     latest = service._latest_period(income, balance, ratio)
-    ref = _valuation_reference(kind)
+    industry = str(profile.get("industry") or "")
+    
+    # Lấy tham chiếu định giá trung vị ngành từ danh sách peers
+    ref = _valuation_reference(kind, symbol, industry)
+
     w = _weights(kind)
     criteria = {
         "revenue_growth": _criterion(
@@ -604,10 +793,10 @@ def _fundamental_analysis(symbol: str, current_price: float | None, profile: dic
         "roe": _criterion("ROE TTM", roe, w["roe"], _roe_points(roe, w["roe"]), "%", group="profitability_leverage"),
         "roa": _criterion("ROA TTM", roa, w["roa"], _roa_points(roa, w["roa"], kind), "%", group="profitability_leverage"),
         "pe": _criterion("P/E", pe, w["pe"], _valuation_points(pe, w["pe"], "pe", ref.get("pe")), "x",
-                         f"Tham chiếu nhóm {ref['pe']:.2f}x." if ref.get("pe") else "Chưa có tham chiếu ngành; dùng dải định giá tuyệt đối để chấm thử nghiệm.",
+                         _valuation_reference_note("pe", pe, ref, industry),
                          group="valuation"),
         "pb": _criterion("P/B", pb, w["pb"], _valuation_points(pb, w["pb"], "pb", ref.get("pb")), "x",
-                         f"Tham chiếu nhóm {ref['pb']:.2f}x." if ref.get("pb") else "Chưa có tham chiếu ngành; dùng dải định giá tuyệt đối để chấm thử nghiệm.",
+                         _valuation_reference_note("pb", pb, ref, industry),
                          group="valuation"),
     }
     if kind == "regular":
@@ -800,7 +989,6 @@ def _explain(fund: dict, tech: dict, score: dict, signal: dict) -> tuple[list[st
             missing.append(item.get("name", key))
     if score["coverage_pct"] < 70:
         risks.append(f"Độ phủ dữ liệu chỉ {score['coverage_pct']:.0f}%; kết luận có độ tin cậy thấp hơn.")
-    # de-duplicate while retaining order
     uniq = lambda xs: list(dict.fromkeys(x for x in xs if x))
     return uniq(strengths)[:7], uniq(weaknesses)[:7], uniq(risks)[:8], uniq(missing)
 
@@ -827,8 +1015,6 @@ def analyze_investment(symbol: str) -> dict:
     if resolution.get("status") == "ok":
         s = resolution.get("symbol", s)
 
-    # Company metadata is loaded before fundamental scoring so sector metadata can
-    # participate in the financial/non-financial classification.
     notes: list[str] = []
     profile: dict[str, Any] = {}
     try:
@@ -844,18 +1030,16 @@ def analyze_investment(symbol: str) -> dict:
     fund, fund_notes = _fundamental_analysis(s, tech.get("close"), profile)
     notes.extend(fund_notes)
 
-    # News is contextual evidence, not a direct score input in this version.
+    # Nạp tin tức chuẩn trực tiếp
     news: list[dict[str, str]] = []
     news_stale = False
     try:
-        news, _, news_stale = news_service.get_company_news(s, 8)
+        news, _, news_stale = news_service.get_company_news(s, limit=5)
         if news_stale:
             notes.append("Tin tức đang dùng cache cũ do nguồn tạm lỗi.")
     except Exception as exc:
         notes.append(f"Không tải được tin tức doanh nghiệp: {type(exc).__name__}")
 
-    # Optional annual-report catalogue integration. The result explicitly states
-    # whether arminer was actually used, avoiding false provenance claims.
     annual_report = annual_report_service.catalog_lookup(s)
 
     score = _score_all(fund, tech)
@@ -868,17 +1052,57 @@ def analyze_investment(symbol: str) -> dict:
     assessment = (
         f"{s}: tín hiệu {signal['label']}. Điểm tổng hợp "
         f"{score['score'] if score['score'] is not None else 'N/A'}/100 "
-        f"(cơ bản {f_score if f_score is not None else 'N/A'}/100; kỹ thuật {t_score if t_score is not None else 'N/A'}/100). "
-        f"{signal['reason']}"
+        f"(cơ bản {f_score if f_score is not None else 'N/A'}/100; kỹ thuật {t_score if t_score is not None else 'N/A'}/100)."
     )
 
-    industry = profile.get("industry") or company_type_label(fund["company_type"])
+    auto_industry = ""
+    try:
+        auto_industry = company_info_service.get_industry_by_symbol(s)
+    except Exception:
+        pass
+
+    industry = (
+        auto_industry
+        or profile.get("industry")
+        or company_type_label(fund["company_type"])
+    )
+    profile["industry"] = industry
+
     company_name = profile.get("company_name") or info.get("name", "")
     exchange = profile.get("exchange") or info.get("exchange", "")
     generated_at = info.get("generated_at") or datetime.now().strftime("%H:%M %d/%m/%Y")
 
-    # Full, human-readable provenance table. This same structure is rendered on
-    # the website and appended to the PDF.
+    # =========================================================================
+    # KÍCH HOẠT DỰ PHÓNG 3 NĂM & ĐỊNH GIÁ CHUYÊN SÂU (GATEKEEPER THEO TÍN HIỆU MUA)
+    # =========================================================================
+    deep_valuation_data = None
+    signal_code = str((signal or {}).get("code") or "").upper()
+    signal_label = str((signal or {}).get("label") or "").upper()
+    
+    if signal_code == "BUY" or "MUA" in signal_label:
+        try:
+            deep_valuation_data = ValuationForecastService.execute(
+                symbol=s,
+                signal_code="BUY",
+                fundamental_data=fund,
+                technical_data=tech,
+                company_info=profile
+            )
+        except Exception as exc:
+            notes.append(f"Không thể hoàn thành định giá chuyên sâu: {exc}")
+            deep_valuation_data = None
+
+    # Cập nhật nhận xét 3 nhóm kinh tế chuyên sâu có bổ sung giá mục tiêu nếu có
+    fund["comments"] = _economic_comments(
+        criteria=fund["criteria"],
+        kind=fund["company_type"],
+        history=fund["history"],
+        target_price=getattr(fund, "get", lambda k: None)("target_price"),
+        signal_code=signal_code
+    )
+
+
+
     data_sources = [
         {
             "data": "Giá, OHLCV và khối lượng",
@@ -952,6 +1176,7 @@ def analyze_investment(symbol: str) -> dict:
         "technical": tech,
         "score": score,
         "signal": signal,
+        "deep_valuation": deep_valuation_data,
         "risk_level": risk_level,
         "assessment": assessment,
         "investment_thesis": strengths[:3],
@@ -978,4 +1203,3 @@ def analyze_investment(symbol: str) -> dict:
         },
     }
     return result
-
