@@ -75,10 +75,9 @@ body,button,input,select,textarea,table{margin:0;background:var(--bg);color:var(
 .method-list{margin:0;padding-left:18px;color:var(--muted);line-height:1.55}
 .notice{border:1px solid color-mix(in srgb,var(--yellow) 50%,var(--line));background:color-mix(in srgb,var(--yellow) 8%,var(--panel));padding:12px;border-radius:12px;color:var(--muted)}
 .backtest-box{min-height:110px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:13px}
-.bt-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.bt-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px}
 .bt-metrics>div{padding:10px;background:var(--panel3);border-radius:9px}
 .bt-metrics b{display:block;font-size:18px}
-.empty{padding:90px 20px;text-align:center;color:var(--muted)}
 .foot{margin-top:18px;color:var(--muted);font-size:12px;text-align:center}
 .chat-toggle{position:fixed;right:22px;bottom:22px;width:52px;height:52px;border:0;border-radius:50%;background:var(--accent);color:#fff;cursor:pointer;font-weight:900;box-shadow:var(--shadow);z-index:30}
 .chat{position:fixed;right:22px;top:86px;bottom:84px;width:380px;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);z-index:29;display:none;flex-direction:column;overflow:hidden}
@@ -93,6 +92,7 @@ body,button,input,select,textarea,table{margin:0;background:var(--bg);color:var(
 .profile-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 .profile-item{padding:12px;background:var(--panel2);border:1px solid var(--line);border-radius:11px}
 .profile-item small{display:block;color:var(--muted);margin-bottom:5px}
+
 .financial-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin:22px 0 14px}
 .financial-heading h3{margin:0 0 5px;font-size:16px}
 .financial-heading p{margin:0;max-width:620px;color:var(--muted);font-size:12px;line-height:1.55}
@@ -119,7 +119,6 @@ body,button,input,select,textarea,table{margin:0;background:var(--bg);color:var(
 .tab-pane{display:none}
 .tab-pane.active{display:block}
 
-/* --- HERO LANDING STYLE (TRANH SỐ 1) --- */
 .hero-landing {
   position: relative;
   min-height: calc(100vh - 120px);
@@ -130,170 +129,50 @@ body,button,input,select,textarea,table{margin:0;background:var(--bg);color:var(
   justify-content: space-between;
   padding: 48px 56px;
   background-color: #08101f;
-  background-image: 
-    linear-gradient(135deg, rgba(8, 16, 31, 0.72) 0%, rgba(8, 16, 31, 0.25) 55%, rgba(8, 16, 31, 0.78) 100%),
-    url("{{ url_for('static', filename='hero_bg.jpg') }}");
-  background-repeat: no-repeat;
-  background-position: center center;
-  background-size: cover;
+  background-image: linear-gradient(135deg, rgba(8, 16, 31, 0.72) 0%, rgba(8, 16, 31, 0.25) 55%, rgba(8, 16, 31, 0.78) 100%);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
-
-.hero-landing-body {
-  max-width: 620px;
-  margin-top: 30px;
-}
-
+.hero-landing-body { max-width: 620px; margin-top: 30px; }
 .hero-landing-tag {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 2px;
-  color: #ffcb66;
-  text-transform: uppercase;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 16px;
+  font-size: 11px; font-weight: 800; letter-spacing: 2px; color: #ffcb66; text-transform: uppercase;
+  display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
 }
-.hero-landing-tag::before {
-  content: "";
-  display: inline-block;
-  width: 26px;
-  height: 2px;
-  background: #ffcb66;
-}
-
+.hero-landing-tag::before { content: ""; display: inline-block; width: 26px; height: 2px; background: #ffcb66; }
 .hero-landing-title {
-  font-size: 54px;
-  font-weight: 900;
-  line-height: 1.15;
-  letter-spacing: -1px;
-  margin: 0 0 16px;
-  color: #ffffff;
+  font-size: 54px; font-weight: 900; line-height: 1.15; letter-spacing: -1px; margin: 0 0 16px; color: #ffffff;
   font-family: Georgia, 'Times New Roman', serif;
 }
-.hero-landing-title span {
-  font-style: italic;
-  font-weight: 400;
-}
-
-.hero-landing-desc {
-  color: #cbd5e1;
-  font-size: 15px;
-  line-height: 1.6;
-  margin-bottom: 32px;
-  max-width: 480px;
-}
-
+.hero-landing-title span { font-style: italic; font-weight: 400; }
+.hero-landing-desc { color: #cbd5e1; font-size: 15px; line-height: 1.6; margin-bottom: 32px; max-width: 480px; }
 .hero-search-box {
-  display: flex;
-  align-items: center;
-  background: rgba(16, 26, 45, 0.75);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 999px;
-  padding: 6px 8px 6px 20px;
-  max-width: 500px;
-  transition: border-color .2s;
+  display: flex; align-items: center; background: rgba(16, 26, 45, 0.75); backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 999px; padding: 6px 8px 6px 20px; max-width: 500px;
 }
-.hero-search-box:focus-within {
-  border-color: #5b8cff;
-}
-.hero-search-box input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: #fff;
-  font-size: 14px;
-}
-.hero-search-box input::placeholder {
-  color: #94a3b8;
-}
+.hero-search-box input { flex: 1; background: transparent; border: none; outline: none; color: #fff; font-size: 14px; }
+.hero-search-box input::placeholder { color: #94a3b8; }
 .hero-search-btn {
-  background: #d8ff3d;
-  color: #0b1320;
-  border: none;
-  border-radius: 999px;
-  padding: 10px 22px;
-  font-weight: 800;
-  font-size: 13.5px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  background: #d8ff3d; color: #0b1320; border: none; border-radius: 999px; padding: 10px 22px;
+  font-weight: 800; font-size: 13.5px; cursor: pointer; display: flex; align-items: center; gap: 6px;
 }
-.hero-search-btn:hover {
-  opacity: 0.92;
-}
-
 .hero-market-card {
-  position: absolute;
-  top: 48px;
-  right: 56px;
-  background: rgba(14, 23, 42, 0.55);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 20px;
-  padding: 16px 22px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  box-shadow: 0 16px 36px rgba(0,0,0,0.3);
+  position: absolute; top: 48px; right: 56px; background: rgba(14, 23, 42, 0.55); backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 20px; padding: 16px 22px; display: flex; align-items: center; gap: 16px;
 }
-.market-info-label {
-  font-size: 11px;
-  color: #93a3bd;
-  text-transform: uppercase;
-  font-weight: 700;
-}
-.market-info-val {
-  font-size: 22px;
-  font-weight: 900;
-  color: #ffffff;
-}
-.market-info-change {
-  color: #2fd19b;
-  font-size: 12.5px;
-  font-weight: 700;
-  margin-left: 6px;
-}
-
-.hero-features {
-  display: flex;
-  gap: 16px;
-  margin-top: 40px;
-  flex-wrap: wrap;
-}
+.market-info-label { font-size: 11px; color: #93a3bd; text-transform: uppercase; font-weight: 700; }
+.market-info-val { font-size: 22px; font-weight: 900; color: #ffffff; }
+.market-info-change { color: #2fd19b; font-size: 12.5px; font-weight: 700; margin-left: 6px; }
+.hero-features { display: flex; gap: 16px; margin-top: 40px; flex-wrap: wrap; }
 .hero-feat-item {
-  background: rgba(14, 23, 42, 0.55);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
-  padding: 12px 18px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  background: rgba(14, 23, 42, 0.55); backdrop-filter: blur(14px); border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px; padding: 12px 18px; display: flex; align-items: center; gap: 12px;
 }
-.hero-feat-icon {
-  font-size: 20px;
-}
-.hero-feat-title {
-  font-size: 13px;
-  font-weight: 800;
-  color: #ffffff;
-}
-.hero-feat-sub {
-  font-size: 11.5px;
-  color: #93a3bd;
-}
+.hero-feat-icon { font-size: 20px; }
+.hero-feat-title { font-size: 13px; font-weight: 800; color: #ffffff; }
+.hero-feat-sub { font-size: 11.5px; color: #93a3bd; }
 
 @media(max-width:1050px){.hero{grid-template-columns:1fr}.span8,.span6,.span4{grid-column:span 12}.metrics{grid-template-columns:repeat(2,1fr)}.lists{grid-template-columns:1fr}.profile-grid{grid-template-columns:repeat(2,1fr)}.bt-metrics{grid-template-columns:repeat(2,1fr)}.chart-wrap{height:460px}}
-@media(max-width:640px){.shell{padding:10px}.topbar{flex-wrap:wrap}.brand{width:100%}.search{order:3;max-width:none;width:100%}.metrics,.profile-grid{grid-template-columns:1fr}.score-pair{grid-template-columns:1fr 1fr}.chat{right:8px;left:8px;width:auto;top:72px}.chart-wrap{height:400px}.hero-main,.score-card,.section{padding:14px}.bt-metrics{grid-template-columns:1fr 1fr}.tab-btn{padding:8px 10px;font-size:13px}.financial-heading{flex-direction:column;gap:9px}.financial-kpis{grid-template-columns:1fr}.financial-kpi{padding:11px 13px}.financial-kpi-value{font-size:19px}.financial-chart-card{padding:13px}.financial-chart-area{height:220px}.hero-landing{padding:24px 20px}.hero-market-card{position:static;margin-bottom:20px}}
+@media(max-width:640px){.shell{padding:10px}.topbar{flex-wrap:wrap}.brand{width:100%}.search{order:3;max-width:none;width:100%}.metrics,.profile-grid{grid-template-columns:1fr}.score-pair{grid-template-columns:1fr 1fr}.chat{right:8px;left:8px;width:auto;top:72px}.chart-wrap{height:400px}.hero-main,.score-card,.section{padding:14px}.bt-metrics{grid-template-columns:1fr 1fr}.tab-btn{padding:8px 10px;font-size:13px}.financial-heading{flex-direction:column;gap:9px}.financial-kpis{grid-template-columns:1fr}.hero-landing{padding:24px 20px}.hero-market-card{position:static;margin-bottom:20px}}
 </style>
 </head>
 <body>
@@ -395,8 +274,7 @@ function switchTab(id, btn){
 
 function render(){
   if (!D || !D.symbol) {
-    // Ẩn thanh tìm kiếm trên topbar đi để không bị 2 thanh tìm kiếm trùng nhau
-    const topBar = document.querySelector(".topbar .search");
+    const topBar = $("topSearchBox");
     if (topBar) topBar.style.display = "none";
 
     $("app").innerHTML = `
@@ -466,75 +344,6 @@ function render(){
   const topBar = $("topSearchBox");
   if (topBar) topBar.style.display = "flex";
 
-function render(){
-  if(!D || !D.symbol){
-    $("app").innerHTML = `
-      <div class="hero-landing">
-        <!-- Floating Market Index Widget -->
-        <div class="hero-market-card">
-          <div>
-            <div class="market-info-label">VNINDEX</div>
-            <div class="market-info-val">1,719.42 <span class="market-info-change">▲ +0.96%</span></div>
-            <div class="muted tiny" style="margin-top:2px;">Cập nhật phiên gần nhất · HOSE</div>
-          </div>
-          <div style="font-size: 26px;">📈</div>
-        </div>
-
-        <!-- Main Headline -->
-        <div class="hero-landing-body">
-          <div class="hero-landing-tag">ART MEETS MARKET INTELLIGENCE</div>
-          <h1 class="hero-landing-title">Đọc thị trường.<br><span>Hiểu giá trị.</span></h1>
-          <p class="hero-landing-desc">
-            Kết hợp dữ liệu tài chính vĩ mô, định giá định lượng và góc nhìn phân tích kỹ thuật trong cùng một không gian.
-          </p>
-
-          <div class="hero-search-box">
-            <span style="margin-right:8px; opacity:0.6;">🔍</span>
-            <input id="landingSymbolInput" placeholder="Nhập mã, VD: FPT, MWG, VCB..." maxlength="10">
-            <button class="hero-search-btn" id="landingAnalyzeBtn">
-              <span>→</span> Phân tích
-            </button>
-          </div>
-        </div>
-
-        <!-- Features Bar Bottom -->
-        <div class="hero-features">
-          <div class="hero-feat-item">
-            <span class="hero-feat-icon">📊</span>
-            <div>
-              <div class="hero-feat-title">Dữ liệu thị trường</div>
-              <div class="hero-feat-sub">Cập nhật theo thời gian thực</div>
-            </div>
-          </div>
-          <div class="hero-feat-item">
-            <span class="hero-feat-icon">📑</span>
-            <div>
-              <div class="hero-feat-title">Phân tích chuyên sâu</div>
-              <div class="hero-feat-sub">Đa chiều · Khách quan</div>
-            </div>
-          </div>
-          <div class="hero-feat-item">
-            <span class="hero-feat-icon">💡</span>
-            <div>
-              <div class="hero-feat-title">Cơ hội đầu tư</div>
-              <div class="hero-feat-sub">Từ dữ liệu đến quyết định</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-
-    // Gắn sự kiện nút phân tích của Landing Page
-    const landBtn = $("landingAnalyzeBtn");
-    const landInp = $("landingSymbolInput");
-    const triggerGo = () => {
-      const s = landInp.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-      if (s) location.href = "/analysis/" + s;
-    };
-    if (landBtn) landBtn.onclick = triggerGo;
-    if (landInp) landInp.addEventListener("keydown", e => { if (e.key === "Enter") triggerGo(); });
-    return;
-  }
   $("symbolInput").value=D.symbol;
   $("chatTicker").textContent="· "+D.symbol;
   const f=D.fundamental||{}, t=D.technical||{}, s=D.score||{}, sg=D.signal||{}, c=f.criteria||{}, g=f.groups||{}, m=D.methodology||{}, ci=D.company_info||{};
@@ -598,7 +407,7 @@ function render(){
         <div class="notice" style="margin-top:12px"><b>Phân loại chấm điểm:</b> ${esc(f.company_type_label)}. ${esc(m.industry_rule||"")}</div>
       </section>
 
-<!-- 2. PHÂN TÍCH TÀI CHÍNH CƠ BẢN -->
+      <!-- 2. PHÂN TÍCH TÀI CHÍNH CƠ BẢN -->
       <section class="card section span12" id="fundamental">
         <h2>2. Phân tích tài chính cơ bản</h2>
         <p class="muted tiny">Đánh giá theo 3 nhóm: Tăng trưởng, Khả năng sinh lời & Đòn bẩy, và Định giá.</p>
@@ -684,80 +493,58 @@ function render(){
         </div>
       </section>
 
-      <!-- 3. DỰ PHÓNG KQKD 3 NĂM & ĐỊNH GIÁ CHUYÊN SÂU -->
+      <!-- 3. ĐỊNH GIÁ KỊCH BẢN ĐỘC LẬP -->
       <section class="card section span12" id="deep-valuation" style="${D.deep_valuation && D.deep_valuation.status === 'COMPLETED' ? 'border: 1px solid var(--green); background: rgba(47, 209, 155, 0.03);' : ''}">
-        <h2>3. Dự phóng KQKD 3 năm & Định giá chuyên sâu</h2>
-        ${(D.deep_valuation && D.deep_valuation.status === "COMPLETED") ? `
+        <h2>3. Định giá độc lập · Dự phóng 3 kịch bản</h2>
+        ${D.deep_valuation && D.deep_valuation.status === "COMPLETED" ? `
           <p class="muted tiny">${esc(D.deep_valuation.model_note)}</p>
-          <h3>Đối chiếu theo hồ sơ đầu tư</h3>
-          <div class="profile-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));">
-            ${Object.values(D.deep_valuation.profile_evaluations).map(profile => `
-              <div class="profile-item">
-                <small>${esc(profile.name)} · kịch bản ${esc(profile.scenario_name)}</small>
-                <b class="${profile.eligible ? 'up' : 'warn'}" style="display:block;margin:5px 0;">${esc(profile.verdict)}</b>
-                <span class="muted tiny">${esc(profile.description)}</span>
-                <div class="tiny muted" style="margin-top:8px;">Ngưỡng: MoS ≥ ${Number(profile.required_margin_of_safety_pct).toFixed(0)}% · IRR ≥ ${Number(profile.min_required_irr_pct).toFixed(0)}% · Upside ≥ ${Number(profile.min_required_upside_pct).toFixed(0)}%</div>
-                <ul class="method-list tiny" style="margin-top:7px;">
-                  ${profile.checks.map(check => `<li class="${check.passed ? 'up' : 'down'}">${check.passed ? 'Đạt' : 'Chưa đạt'} · ${esc(check.label)}</li>`).join("")}
-                </ul>
-              </div>
-            `).join("")}
+          <div class="profile-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-top:12px">
+            <div class="profile-item"><small>Tín hiệu định giá độc lập</small><b class="${D.deep_valuation.final_signal.includes('BUY') ? 'up' : D.deep_valuation.final_signal.includes('SELL') ? 'down' : 'warn'}" style="display:block;margin:5px 0">${esc(D.deep_valuation.final_signal)}</b><span class="muted tiny">${esc(D.deep_valuation.action_note)}</span></div>
+            <div class="profile-item"><small>Tín hiệu L2 (riêng biệt)</small><b class="${signalClass(D.signal.code)}" style="display:block;margin:5px 0">${esc(D.signal.label)}</b><span class="muted tiny">Không tham gia phép tính và không bị tín hiệu định giá thay đổi.</span></div>
+            <div class="profile-item"><small>Ngành / ngưỡng upside tối thiểu</small><b style="display:block;margin:5px 0">${esc(D.deep_valuation.industry_type)} · ${Number(D.deep_valuation.industry_minimum_upside_pct).toFixed(0)}%</b><span class="muted tiny">Upside cơ sở: ${Number(D.deep_valuation.base_upside_pct).toFixed(1)}%</span></div>
           </div>
-          <h3>So sánh 3 kịch bản định giá (cuối năm 3)</h3>
+          <h3>So sánh 3 kịch bản · giá mục tiêu cuối năm 3</h3>
           <div class="table-wrap">
             <table class="table">
-              <thead>
-                <tr><th>Kịch bản</th><th>Phương pháp</th><th>Giá mục tiêu</th><th>Giá trị hợp lý hiện tại</th><th>Upside 3 năm</th><th>IRR/năm</th><th>Biên an toàn</th></tr>
-              </thead>
+              <thead><tr><th>Kịch bản</th><th>Phương pháp</th><th>Giá mục tiêu</th><th>Upside lũy kế</th><th>CAGR/năm</th><th>Giả định Gemini</th></tr></thead>
               <tbody>
-                ${Object.values(D.deep_valuation.scenarios).map(scenario => {
-                  const metrics = scenario.investment_metrics;
-                  return `<tr>
+                ${Object.values(D.deep_valuation.scenarios).map(scenario => `
+                  <tr>
                     <td><b>${esc(scenario.name)}</b></td>
-                    <td>${esc(scenario.valuation.valuation_method)} · ${Number(scenario.valuation.target_multiplier).toFixed(1)}${esc(scenario.valuation.multiplier_unit)}</td>
+                    <td>${esc(scenario.valuation.valuation_method)} · ${Number(scenario.valuation.target_multiplier).toFixed(2)}${esc(scenario.valuation.multiplier_unit)}</td>
                     <td>${money(scenario.valuation.target_price_y3)} VND</td>
-                    <td>${money(metrics.fair_value_present)} VND</td>
-                    <td class="${metrics.upside_pct >= 0 ? 'up' : 'down'}">${Number(metrics.upside_pct).toFixed(1)}%</td>
-                    <td class="${metrics.expected_irr_annual >= 0 ? 'up' : 'down'}">${Number(metrics.expected_irr_annual).toFixed(1)}%</td>
-                    <td>${Number(metrics.margin_of_safety_pct).toFixed(1)}%</td>
-                  </tr>`;
+                    <td class="${scenario.investment_metrics.upside_pct >= 0 ? 'up' : 'down'}">${Number(scenario.investment_metrics.upside_pct).toFixed(1)}%</td>
+                    <td class="${scenario.investment_metrics.cagr_pct >= 0 ? 'up' : 'down'}">${Number(scenario.investment_metrics.cagr_pct).toFixed(1)}%</td>
+                    <td>${esc(scenario.note)}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+          <h3>Dự phóng chi tiết · Kịch bản cơ sở</h3>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>${D.deep_valuation.industry_type === "BANK"
+                ? `<tr><th>Năm</th><th>LNST dự phóng</th><th>ROE</th><th>Tỷ lệ giữ lại</th><th>VCSH cuối kỳ</th><th>BVPS</th></tr>`
+                : `<tr><th>Năm</th><th>Doanh thu</th><th>Tăng trưởng</th><th>Biên LNST</th><th>LNST</th><th>EPS dự phóng</th></tr>`}</thead>
+              <tbody>
+                ${['year_1', 'year_2', 'year_3'].map((key, index) => {
+                  const item = D.deep_valuation.forecast_projections[key];
+                  return D.deep_valuation.industry_type === "BANK"
+                    ? `<tr><td><b>Năm ${index + 1} (${item.year})</b></td><td>${money(item.npat)} VND</td><td>${Number(item.roe_pct).toFixed(1)}%</td><td>${Number(item.retention_rate_pct).toFixed(1)}%</td><td>${money(item.equity)} VND</td><td>${money(item.bvps)} VND</td></tr>`
+                    : `<tr><td><b>Năm ${index + 1} (${item.year})</b></td><td>${money(item.revenue)} VND</td><td>${Number(item.rev_growth_pct).toFixed(1)}%</td><td>${Number(item.net_margin_pct).toFixed(1)}%</td><td>${money(item.npat)} VND</td><td>${money(item.eps)} VND</td></tr>`;
                 }).join("")}
               </tbody>
             </table>
           </div>
-          <h3>Dự phóng chi tiết 3 năm · Kịch bản cơ sở</h3>
-          <p class="muted tiny">${esc(D.deep_valuation.forecast_projections.assumptions)} Giá trị cổ phiếu dùng EPS cho P/E hoặc BVPS cho P/B.</p>
-          <div class="table-wrap">
-            <table class="table">
-              <thead>
-                <tr><th>Năm</th><th>Doanh thu dự phóng</th><th>Tăng trưởng DT</th><th>LNST dự phóng</th><th>EPS / BVPS dự phóng</th></tr>
-              </thead>
-              <tbody>
-                ${['year_1', 'year_2', 'year_3'].map(k => {
-                  const item = D.deep_valuation.forecast_projections[k];
-                  const perShareValue = item.bvps || item.eps;
-                  return `<tr><td><b>Năm ${k === 'year_1' ? '1' : k === 'year_2' ? '2' : '3'} (${item.year})</b></td><td>${money(item.revenue)} VND</td><td class="${item.rev_growth_pct >= 0 ? 'up' : 'down'}">${item.rev_growth_pct.toFixed(1)}%</td><td>${money(item.npat)} VND</td><td>${perShareValue ? money(perShareValue) + ' VND' : '—'}</td></tr>`;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-          <h3 style="margin-top:20px;">Kết quả kịch bản cơ sở</h3>
-          <div class="profile-grid" style="grid-template-columns: repeat(4, 1fr); margin-top: 10px;">
-            <div class="profile-item"><small>Phương pháp</small><b style="font-size: 13px;">${esc(D.deep_valuation.valuation.valuation_method)}</b></div>
-            <div class="profile-item"><small>Giá mục tiêu cuối Năm 3</small><b class="up" style="font-size: 17px;">${money(D.deep_valuation.valuation.target_price_y3)} VND</b></div>
-            <div class="profile-item"><small>Giá trị hợp lý quy về hiện tại</small><b style="font-size: 17px;">${money(D.deep_valuation.investment_metrics.fair_value_present)} VND</b><span class="muted tiny">Chiết khấu 10%/năm</span></div>
-            <div class="profile-item"><small>Lợi suất kỳ vọng (IRR/năm)</small><b class="${D.deep_valuation.investment_metrics.expected_irr_annual > 0 ? 'up' : 'down'}" style="font-size: 17px;">${D.deep_valuation.investment_metrics.expected_irr_annual}%</b><span class="muted tiny">Biên an toàn: ${D.deep_valuation.investment_metrics.margin_of_safety_pct}%</span></div>
-          </div>
-          <div class="comment" style="margin-top: 14px;"><b>Ghi chú:</b> ${esc(D.deep_valuation.valuation.note)}</div>
+          <div class="comment" style="margin-top:12px"><b>Giả định chung:</b> ${esc(D.deep_valuation.assumptions)}</div>
+          <div class="comment"><b>Giới hạn:</b> ${esc(D.deep_valuation.limitations)}</div>
         ` : `
           <div class="notice">
-            ${D.deep_valuation ? `
-              <b>Chưa thể hoàn tất định giá:</b> ${esc(D.deep_valuation.message||"Dữ liệu đầu vào chưa đủ để tính toán đáng tin cậy.")}
-            ` : `
-              <b>Cơ chế kiểm soát (Gatekeeper):</b> Mô hình dự phóng 3 năm và định giá chuyên sâu chỉ tự động kích hoạt khi cổ phiếu đạt tín hiệu <b>MUA (BUY)</b>.
-              Mã <b>${esc(D.symbol)}</b> hiện có tín hiệu là <b>${esc(sg.label)}</b> nên chưa chạy định giá chuyên sâu.
-            `}
+            <b>Chưa thể hoàn tất định giá:</b> ${esc(D.deep_valuation && D.deep_valuation.message || "Không nhận được kết quả định giá.")}
+            ${D.deep_valuation && D.deep_valuation.status === "AI_UNAVAILABLE" ? `<div style="margin-top:6px">Thêm GEMINI_API_KEY vào file .env rồi khởi động lại ứng dụng để bật tạo kịch bản.</div>` : ""}
           </div>
+          <p class="muted tiny" style="margin-top:10px">Định giá độc lập với tín hiệu L2. Giá mục tiêu chỉ được tính khi có đủ dữ liệu và giả định kịch bản hợp lệ.</p>
         `}
       </section>
 
@@ -805,11 +592,10 @@ function render(){
     <div class="grid">
       <section class="card section span12" id="backtest">
         <h2>Backtest chiến lược đầu tư</h2>
-        <p class="muted tiny">Tín hiệu cuối phiên, giao dịch ở phiên kế tiếp; dữ liệu tài chính giới hạn theo kỳ công bố để giảm look-ahead bias.</p>
+        <p class="muted tiny">Chỉ chạy 1 năm hoặc 3 năm. Tín hiệu cuối phiên, giao dịch ở phiên kế tiếp; mô phỏng vốn 100 triệu VNĐ, lô 100 cổ phiếu, phí/thuế/trượt giá và giới hạn BCTC theo ngày công bố để giảm look-ahead bias.</p>
         <div class="actions">
           <button class="btn btn-bt" data-y="1">1 năm</button>
           <button class="btn btn-bt primary" data-y="3">3 năm</button>
-          <button class="btn btn-bt" data-y="5">5 năm</button>
         </div>
         <div id="backtestResult" class="backtest-box" style="margin-top:12px"><span class="muted">Chưa chạy backtest.</span></div>
       </section>
@@ -826,7 +612,7 @@ function render(){
     </div>
   </div>
 
-<!-- TAB 3: PHƯƠNG PHÁP LUẬN & BẢNG TÍNH ĐIỂM -->
+  <!-- TAB 3: PHƯƠNG PHÁP LUẬN & BẢNG TÍNH ĐIỂM -->
   <div id="tab-methodology" class="tab-pane">
     <div class="grid">
       <section class="card section span12" id="scoring-calculation">
@@ -845,8 +631,9 @@ function render(){
         </div>
 
         <div class="profile-item" style="margin-bottom: 20px;">
-        <small>Công thức tổng hợp điểm</small>
-        <b style="font-size: 16px; color: var(--accent);">${esc(s.formula || 'S = 0.6*F + 0.4*T')} = ${s.score !== null ? Number(s.score).toFixed(1) : 'N/A'} / 100</b>          <div class="muted tiny" style="margin-top: 4px;">Độ phủ dữ liệu thực tế: ${Number(s.coverage_pct || 0).toFixed(1)}% (ngưỡng phát tín hiệu MUA: ≥ 65%)</div>
+          <small>Công thức tổng hợp điểm</small>
+          <b style="font-size: 16px; color: var(--accent);">S = 0.6*F + 0.4*T = ${s.score !== null ? Number(s.score).toFixed(1) : "N/A"} / 100</b>
+          <div class="muted tiny" style="margin-top: 4px;">Độ phủ dữ liệu thực tế: ${Number(s.coverage_pct || 0).toFixed(1)}% (ngưỡng phát tín hiệu MUA: ≥ 65%)</div>
         </div>
 
         <h3>Bảng bóc tách điểm từng tiêu chí</h3>
@@ -888,7 +675,7 @@ function render(){
           <li><b>Quy tắc tín hiệu MUA (BUY):</b> Điểm tổng hợp S ≥ 70, cấu trúc kỹ thuật Tích cực (Giá > MA20 > MA50), điểm cơ bản F ≥ 60, không vi phạm các cảnh báo rủi ro nghiêm trọng và độ phủ dữ liệu ≥ 65%.</li>
           <li><b>Quy tắc BÁN (SELL):</b> Điểm tổng hợp S < 40 kèm theo cơ bản hoặc kỹ thuật suy yếu rõ rệt.</li>
           <li><b>Quy tắc GIỮ (HOLD):</b> Điểm S nằm trong khoảng 40 – 70 hoặc các tín hiệu cơ bản và kỹ thuật chưa đồng thuận.</li>
-          <li><b>Đặc thù nhóm ngành tài chính:</b> Ngân hàng, Chứng khoán, Bảo hiểm không áp dụng tiêu chí D/E; 7 điểm trọng số của D/E được tự động tái phân bổ vào nhóm Sinh lời và Định giá[cite: 1].</li>
+          <li><b>Đặc thù nhóm ngành tài chính:</b> Ngân hàng, Chứng khoán, Bảo hiểm không áp dụng tiêu chí D/E; 7 điểm trọng số của D/E được tự động tái phân bổ vào nhóm Sinh lời và Định giá.</li>
         </ul>
       </section>
 
@@ -919,9 +706,12 @@ function render(){
 function initFinancialCharts() {
   const history = D && D.fundamental && D.fundamental.history;
   if (!history || !history.length) {
-    document.getElementById("financialDataEmpty").hidden = false;
-    document.getElementById("financialHighlights").hidden = true;
-    document.getElementById("financialCharts").hidden = true;
+    const emptyNotice = document.getElementById("financialDataEmpty");
+    const hl = document.getElementById("financialHighlights");
+    const fc = document.getElementById("financialCharts");
+    if(emptyNotice) emptyNotice.hidden = false;
+    if(hl) hl.hidden = true;
+    if(fc) fc.hidden = true;
     return;
   }
   const hist = [...D.fundamental.history].sort((a, b) => a.year - b.year);
@@ -933,12 +723,19 @@ function initFinancialCharts() {
   const roaData = hist.map(x => num(x.roa) === null ? null : x.roa);
   const deData = hist.map(x => num(x.de) === null ? null : x.de);
   const formatBillions = value => num(value) === null ? "—" : (value / 1e9).toLocaleString("vi-VN", { maximumFractionDigits: 1 }) + " tỷ";
-  document.getElementById("financialRevenue").textContent = formatBillions(latest.revenue);
-  document.getElementById("financialProfit").textContent = formatBillions(latest.npat);
-  document.getElementById("financialRoe").textContent = val(latest.roe, "%");
-  document.getElementById("financialYear").textContent = "Kết quả năm " + latest.year;
-  document.getElementById("financialRevenueNote").textContent = "Năm " + latest.year + (num(latest.revenue_growth) === null ? "" : " · tăng trưởng " + val(latest.revenue_growth, "%"));
-  document.getElementById("financialProfitNote").textContent = "Năm " + latest.year + (num(latest.profit_growth) === null ? "" : " · tăng trưởng " + val(latest.profit_growth, "%"));
+  const elRev = document.getElementById("financialRevenue");
+  const elProfit = document.getElementById("financialProfit");
+  const elRoe = document.getElementById("financialRoe");
+  const elYear = document.getElementById("financialYear");
+  const elRevNote = document.getElementById("financialRevenueNote");
+  const elProfitNote = document.getElementById("financialProfitNote");
+
+  if(elRev) elRev.textContent = formatBillions(latest.revenue);
+  if(elProfit) elProfit.textContent = formatBillions(latest.npat);
+  if(elRoe) elRoe.textContent = val(latest.roe, "%");
+  if(elYear) elYear.textContent = "Kết quả năm " + latest.year;
+  if(elRevNote) elRevNote.textContent = "Năm " + latest.year + (num(latest.revenue_growth) === null ? "" : " · tăng trưởng " + val(latest.revenue_growth, "%"));
+  if(elProfitNote) elProfitNote.textContent = "Năm " + latest.year + (num(latest.profit_growth) === null ? "" : " · tăng trưởng " + val(latest.profit_growth, "%"));
 
   const isDark = document.documentElement.dataset.theme !== "light";
   const textColor = isDark ? "#93a3bd" : "#61718a";
@@ -946,10 +743,13 @@ function initFinancialCharts() {
 
   if (typeof Chart === "undefined") {
     ["chartFinancialRevProfit", "chartFinancialRatios"].forEach(id => {
-      document.getElementById(id).hidden = true;
+      const el = document.getElementById(id);
+      if(el) el.hidden = true;
       const empty = document.getElementById(id + "Empty");
-      empty.textContent = "Không thể tải thư viện biểu đồ. Vui lòng kiểm tra kết nối và tải lại trang.";
-      empty.hidden = false;
+      if(empty) {
+        empty.textContent = "Không thể tải thư viện biểu đồ. Vui lòng kiểm tra kết nối và tải lại trang.";
+        empty.hidden = false;
+      }
     });
     return;
   }
@@ -1025,19 +825,44 @@ function setupBacktest(){
 async function runBacktest(years){
   const box = $("backtestResult");
   if (!box) return;
+  if (![1, 3].includes(Number(years))) {
+    box.innerHTML = `<span class="down">Chỉ hỗ trợ backtest 1 năm hoặc 3 năm.</span>`;
+    return;
+  }
   box.innerHTML = `<span class="muted">Đang chạy backtest ${years} năm...</span>`;
   try {
     const r = await fetch(`/api/backtest/${encodeURIComponent(D.symbol)}?years=${years}`);
     const j = await r.json();
     if (!r.ok) throw new Error(j.message || j.error || "Backtest lỗi");
+    const trades = Array.isArray(j.trade_log) ? j.trade_log : [];
+    const tradeRows = trades.length ? trades.map(t => `
+      <tr>
+        <td>${esc(t.entry_date || "—")}</td>
+        <td>${money(t.entry_price)} VNĐ</td>
+        <td>${esc(t.exit_date || "—")}</td>
+        <td>${money(t.exit_price)} VNĐ</td>
+        <td class="${tone(t.return_pct)}">${val(t.return_pct,"%")}</td>
+      </tr>`).join("") : `<tr><td colspan="5" class="muted">Chưa có giao dịch hoàn tất trong kỳ.</td></tr>`;
     box.innerHTML = `
       <div class="bt-metrics">
         <div><span class="muted tiny">Lợi suất chiến lược (${years}N)</span><b class="${tone(j.strategy_return_pct)}">${val(j.strategy_return_pct,"%")}</b></div>
+        <div><span class="muted tiny">CAGR</span><b class="${tone(j.cagr_pct)}">${val(j.cagr_pct,"%")}</b></div>
         <div><span class="muted tiny">Buy & Hold (${years}N)</span><b class="${tone(j.buy_hold_return_pct)}">${val(j.buy_hold_return_pct,"%")}</b></div>
         <div><span class="muted tiny">Max Drawdown</span><b>${val(j.max_drawdown_pct,"%")}</b></div>
         <div><span class="muted tiny">Số GD / Win rate</span><b>${j.trades} / ${j.win_rate_pct===null?"N/A":j.win_rate_pct.toFixed(1)+"%"}</b></div>
+        <div><span class="muted tiny">Phí, thuế & trượt giá ước tính</span><b>${money(j.total_costs_vnd)} VNĐ</b></div>
       </div>
-      <div class="comment" style="margin-top:10px">${esc(j.method_note)}</div>`;
+      <div class="comment" style="margin-top:10px">${esc(j.method_note)}</div>
+      <details style="margin-top:10px">
+        <summary class="muted tiny" style="cursor:pointer">Giao dịch gần nhất (${trades.length})</summary>
+        <div class="table-wrap" style="margin-top:8px">
+          <table class="table">
+            <thead><tr><th>Ngày mua</th><th>Giá mua</th><th>Ngày bán</th><th>Giá bán</th><th>Lợi suất ròng</th></tr></thead>
+            <tbody>${tradeRows}</tbody>
+          </table>
+        </div>
+      </details>
+      <div class="muted tiny" style="margin-top:8px">${esc(j.limitation || "")}</div>`;
   } catch(e) {
     box.innerHTML = `<span class="down">${esc(e.message || "Không chạy được backtest.")}</span>`;
   }
@@ -1139,7 +964,7 @@ async function runValidation(mode = 'peers'){
   }
 }
 
-// Khởi chạy
+// Khởi chạy giao diện
 render();
 
 $("chatToggle").onclick=()=>$("chatPanel").classList.toggle("open");
@@ -1166,8 +991,6 @@ async function sendChat(){
 }
 $("chatSend").onclick=sendChat;
 $("chatInput").addEventListener("keydown",e=>{if(e.key==="Enter")sendChat()});
-
-}
 </script>
 </body>
 </html>

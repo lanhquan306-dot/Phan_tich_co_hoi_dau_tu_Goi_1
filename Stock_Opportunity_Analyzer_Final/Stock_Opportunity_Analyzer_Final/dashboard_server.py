@@ -185,9 +185,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             symbol, error = _resolve_symbol_or_error(match.group(1))
             if error:
                 return self._send_json(error[0], {"error": "invalid_symbol"})
+            raw_years = parse_qs(url.query).get("years", ["3"])[0]
             try:
-                raw_years = parse_qs(url.query).get("years", ["3"])[0]
-                years = max(1, min(int(raw_years), 5))
+                years = int(raw_years)
+            except (TypeError, ValueError):
+                return self._send_json(400, {
+                    "error": "invalid_period",
+                    "message": "Chỉ hỗ trợ backtest 1 năm hoặc 3 năm.",
+                })
+            if years not in opportunity_backtest.SUPPORTED_BACKTEST_YEARS:
+                return self._send_json(400, {
+                    "error": "invalid_period",
+                    "message": "Chỉ hỗ trợ backtest 1 năm hoặc 3 năm.",
+                })
+            try:
                 return self._send_json(200, opportunity_backtest.run_backtest(symbol, years=years))
             except Exception as exc:
                 log.exception("backtest %s", symbol)

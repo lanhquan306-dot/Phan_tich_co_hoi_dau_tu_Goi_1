@@ -1,13 +1,59 @@
 """Offline tests for the assignment-facing investment dashboard engine."""
 from __future__ import annotations
 
+from unittest.mock import patch
+
+import os
+import json
+from types import SimpleNamespace
+from unittest.mock import Mock
 import pandas as pd
 import numpy as np
+from google.genai.errors import APIError
 
 import chart_service as charts
 import investment_analysis as ia
+import opportunity_backtest as bt
 import report_pdf
 from valuation_forecast_service import ValuationForecastService
+
+
+def ai_scenario_result(industry_type="NORMAL"):
+    notes = {
+        "Thận trọng": "Tăng trưởng chậm và bội số thận trọng.",
+        "Cơ sở": "Duy trì xu hướng hiện tại.",
+        "Lạc quan": "Tăng trưởng thuận lợi hơn kỳ vọng.",
+    }
+    if industry_type == "BANK":
+        assumptions = {
+            "roe_scenarios": {
+                "conservative": [0.14, 0.14, 0.14],
+                "base": [0.17, 0.17, 0.17],
+                "optimistic": [0.20, 0.20, 0.20],
+            },
+            "retention_rate": 0.75,
+            "pb_scenarios": {"conservative": 0.9, "base": 1.2, "optimistic": 1.5},
+        }
+    else:
+        assumptions = {
+            "growth_scenarios": {
+                "conservative": [0.04, 0.04, 0.04],
+                "base": [0.10, 0.10, 0.10],
+                "optimistic": [0.16, 0.16, 0.16],
+            },
+            "margin_scenarios": {
+                "conservative": 0.09,
+                "base": 0.12,
+                "optimistic": 0.15,
+            },
+            "pe_scenarios": {"conservative": 10.0, "base": 14.0, "optimistic": 18.0},
+        }
+    return {
+        "assumptions": assumptions,
+        "scenario_notes": notes,
+        "assumptions_text": "Các giả định được tạo từ dữ liệu lịch sử và đặc điểm ngành.",
+        "limitations": "Các giả định AI có thể sai; chưa mô phỏng biến cố tương lai.",
+    }
 
 
 def approx(got, want, tol=1e-8):
@@ -92,7 +138,7 @@ def test_technical_and_history():
     assert all("revenue" in r and "npat" in r for r in hist)
 
 
-def test_three_scenario_valuation_and_profiles():
+def test_three_scenario_gemini_valuation_is_independent():
     history = [
         {"year": 2022, "revenue": 80_000_000_000, "revenue_growth": 8.0, "npat": 8_000_000_000, "roe": 12.0},
         {"year": 2023, "revenue": 92_000_000_000, "revenue_growth": 15.0, "npat": 9_200_000_000, "roe": 13.0},
@@ -109,47 +155,49 @@ def test_three_scenario_valuation_and_profiles():
         },
         "valuation_reference": {"pe": 13.0, "pb": 1.4},
     }
-    result = ValuationForecastService.execute(
-        "AAA",
-        "BUY",
-        fundamental,
-        {"close": 10_000},
-        {"issued_share": 12_000_000, "industry": "Công nghệ"},
-    )
+    with patch.object(
+        ValuationForecastService, "_generate_scenarios",
+        return_value=ai_scenario_result("TECH"),
+    ):
+        result = ValuationForecastService.execute(
+            "AAA",
+            fundamental,
+            {"close": 10_000},
+            {"issued_share": 12_000_000, "industry": "Công nghệ"},
+        )
     assert result["status"] == "COMPLETED", result
     assert set(result["scenarios"]) == {"conservative", "base", "optimistic"}
-    assert set(result["profile_evaluations"]) == {"conservative", "balanced", "growth"}
     for scenario in result["scenarios"].values():
         assert scenario["valuation"]["target_price_y3"] > 0
-        assert scenario["investment_metrics"]["fair_value_present"] > 0
+        assert scenario["investment_metrics"]["cagr_pct"] is not None
         assert len([key for key in scenario["forecast_projections"] if key.startswith("year_")]) == 3
     assert result["valuation"] == result["scenarios"]["base"]["valuation"]
-    assert "không bị kết quả định giá ghi đè" in result["model_note"]
-    assert ValuationForecastService.execute(
-        "AAA", "HOLD", fundamental, {"close": 10_000}, {"issued_share": 12_000_000}
-    ) is None
+    assert "không kết hợp" in result["model_note"]
+    assert result["industry_type"] == "TECH"
+    assert result["final_signal"] == "STRONG BUY"
+    assert result["scenarios"]["conservative"]["valuation"]["target_multiplier"] < result["scenarios"]["optimistic"]["valuation"]["target_multiplier"]
+
     missing_shares = ValuationForecastService.execute(
-        "AAA", "BUY", fundamental, {"close": 10_000}, {}
+        "AAA", fundamental, {"close": 10_000}, {}
     )
     assert missing_shares["status"] == "INSUFFICIENT_DATA"
     assert "số cổ phiếu lưu hành" in missing_shares["message"]
 
     real_estate = ValuationForecastService.execute(
         "AAA",
-        "BUY",
         fundamental,
         {"close": 10_000},
         {"issued_share": 12_000_000, "industry": "Bất động sản"},
     )
-    assert "RNAV chưa khả dụng" in real_estate["valuation"]["valuation_method"]
-    assert "không tự giả định giá trị RNAV" in real_estate["valuation"]["note"]
+    assert real_estate["status"] == "INSUFFICIENT_DATA"
+    assert "RNAV" in real_estate["message"]
 
 
 def test_financial_valuation_uses_pb_and_requires_real_inputs():
     history = [
         {"year": 2023, "revenue": 40_000_000_000, "revenue_growth": 8.0, "npat": 8_000_000_000, "roe": 16.0},
-        {"year": 2024, "revenue": 44_000_000_000, "revenue_growth": 10.0, "npat": 9_000_000_000, "roe": 17.0},
-        {"year": 2025, "revenue": 49_000_000_000, "revenue_growth": 11.4, "npat": 10_000_000_000, "roe": 18.0},
+        {"year": 2024, "revenue": 44_000_000_000, "revenue_growth": 10.0, "npat": 9_000_000_000, "roe": 17.0, "equity": 60_000_000_000},
+        {"year": 2025, "revenue": 49_000_000_000, "npat": 10_000_000_000, "roe": 18.0, "equity": 70_000_000_000},
     ]
     fundamental = {
         "company_type": "bank",
@@ -158,21 +206,300 @@ def test_financial_valuation_uses_pb_and_requires_real_inputs():
         "bvps": 12_000,
         "valuation_reference": {"pb": 1.3},
     }
-    result = ValuationForecastService.execute(
-        "BBB", "BUY", fundamental, {"close": 14_400}, {}
-    )
+    with patch.object(
+        ValuationForecastService, "_generate_scenarios",
+        return_value=ai_scenario_result("BANK"),
+    ):
+        result = ValuationForecastService.execute(
+            "BBB", fundamental, {"close": 14_400}, {"issued_share": 5_000_000}
+        )
     assert result["status"] == "COMPLETED", result
     assert "P/B" in result["valuation"]["valuation_method"]
     assert result["forecast_projections"]["year_3"]["bvps"] > 0
     assert result["scenarios"]["conservative"]["valuation"]["target_multiplier"] < result["scenarios"]["optimistic"]["valuation"]["target_multiplier"]
+    assert result["industry_type"] == "BANK"
 
     missing_book_value = {**fundamental, "bvps": None, "valuation_reference": {}}
     missing_book_value["criteria"] = {"roe": {"value": 18.0}}
+    missing_book_value["history"][-1]["equity"] = None
     unavailable = ValuationForecastService.execute(
-        "BBB", "BUY", missing_book_value, {"close": 14_400}, {}
+        "BBB", missing_book_value, {"close": 14_400}, {"issued_share": 5_000_000}
     )
     assert unavailable["status"] == "INSUFFICIENT_DATA"
-    assert "BVPS" in unavailable["message"]
+    assert "vốn chủ sở hữu/BVPS" in unavailable["message"]
+
+
+def test_valuation_requires_gemini_and_validates_ai_response():
+    with patch.dict(os.environ, {}, clear=True):
+        missing_key = ValuationForecastService._generate_scenarios(
+            "AAA", "NORMAL", "Hàng tiêu dùng", "Công ty A", [], 10_000,
+            1_000_000, 100_000_000, None, None,
+        )
+    assert missing_key["error"] == "AI_UNAVAILABLE"
+
+    invalid = ai_scenario_result()
+    invalid["assumptions"]["growth_scenarios"]["base"] = [0.1, 0.2]
+    try:
+        ValuationForecastService._validate_scenario_data(
+            {
+                **invalid["assumptions"],
+                "scenario_notes": invalid["scenario_notes"],
+                "assumptions": invalid["assumptions_text"],
+                "limitations": invalid["limitations"],
+            },
+            "NORMAL",
+        )
+    except ValueError as exc:
+        assert "đúng 3 năm" in str(exc)
+    else:
+        raise AssertionError("Malformed AI scenario accepted")
+
+    generated = {
+        **ai_scenario_result()["assumptions"],
+        "industry_type": "NORMAL",
+        "scenario_notes": ai_scenario_result()["scenario_notes"],
+        "assumptions": ai_scenario_result()["assumptions_text"],
+        "limitations": ai_scenario_result()["limitations"],
+    }
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(
+            generate_content=Mock(return_value=SimpleNamespace(text=json.dumps(generated)))
+        )
+    )
+    with (
+        patch.dict(
+            os.environ,
+            {"GEMINI_API_KEY_VALUATION": "", "GEMINI_API_KEY": "test-key"},
+        ),
+        patch("google.genai.Client", return_value=fake_client),
+    ):
+        result = ValuationForecastService._generate_scenarios(
+            "AAA", "NORMAL", "Hàng tiêu dùng", "Công ty A", [], 10_000,
+            1_000_000, 100_000_000, None, None,
+        )
+    assert "error" not in result
+    assert result["assumptions"]["growth_scenarios"]["base"] == [0.1, 0.1, 0.1]
+    fake_client.models.generate_content.assert_called_once()
+    assert fake_client.models.generate_content.call_args.kwargs["model"] == "gemini-2.5-flash"
+    assert fake_client.models.generate_content.call_args.kwargs["config"].response_mime_type == "application/json"
+    assert fake_client.models.generate_content.call_args.kwargs["config"].response_schema is None
+
+    class FakeClientError(Exception):
+        code = 403
+        status = "PERMISSION_DENIED"
+        message = "API key AIzaSyabcdefghijklmnopqrstuvwxyz1234567890 is not authorized"
+
+    diagnostic = ValuationForecastService._describe_generation_error(FakeClientError())
+    assert "HTTP 403" in diagnostic
+    assert "PERMISSION_DENIED" in diagnostic
+    assert "Kiểm tra GEMINI_API_KEY" in diagnostic
+    assert "AIzaSy" not in diagnostic
+
+    model_unavailable = APIError(
+        404,
+        {
+            "error": {
+                "code": 404,
+                "status": "NOT_FOUND",
+                "message": "gemini-2.5-flash is unavailable",
+            }
+        },
+    )
+    model_fallback_client = SimpleNamespace(
+        models=SimpleNamespace(
+            generate_content=Mock(
+                side_effect=[
+                    model_unavailable,
+                    SimpleNamespace(text=json.dumps(generated)),
+                ]
+            )
+        )
+    )
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "GEMINI_API_KEY_VALUATION": "valuation-test-key",
+                "GEMINI_API_KEY": "shared-test-key",
+            },
+        ),
+        patch("google.genai.Client", return_value=model_fallback_client) as client_factory,
+    ):
+        model_fallback_result = ValuationForecastService._generate_scenarios(
+            "AAA", "NORMAL", "Hàng tiêu dùng", "Công ty A", [], 10_000,
+            1_000_000, 100_000_000, None, None,
+        )
+    assert "error" not in model_fallback_result
+    assert client_factory.call_args.kwargs["api_key"] == "valuation-test-key"
+    assert [
+        call.kwargs["model"]
+        for call in model_fallback_client.models.generate_content.call_args_list
+    ] == ["gemini-2.5-flash", "gemini-3.8-flash"]
+
+    class TemporaryGeminiError(Exception):
+        code = 503
+        status = "UNAVAILABLE"
+        message = "Temporarily overloaded"
+
+    dedicated_client = SimpleNamespace(
+        models=SimpleNamespace(
+            generate_content=Mock(
+                side_effect=[
+                    TemporaryGeminiError(),
+                    TemporaryGeminiError(),
+                    TemporaryGeminiError(),
+                ]
+            )
+        )
+    )
+    shared_client = SimpleNamespace(
+        models=SimpleNamespace(
+            generate_content=Mock(return_value=SimpleNamespace(text=json.dumps(generated)))
+        )
+    )
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "GEMINI_API_KEY_VALUATION": "valuation-test-key",
+                "GEMINI_API_KEY": "shared-test-key",
+            },
+        ),
+        patch(
+            "google.genai.Client",
+            side_effect=[dedicated_client, shared_client],
+        ) as client_factory,
+        patch("valuation_forecast_service.time.sleep") as sleep,
+    ):
+        key_fallback_result = ValuationForecastService._generate_scenarios(
+            "AAA", "NORMAL", "Hàng tiêu dùng", "Công ty A", [], 10_000,
+            1_000_000, 100_000_000, None, None,
+        )
+    assert "error" not in key_fallback_result
+    assert [
+        call.kwargs["api_key"] for call in client_factory.call_args_list
+    ] == ["valuation-test-key", "shared-test-key"]
+    assert dedicated_client.models.generate_content.call_count == 3
+    assert shared_client.models.generate_content.call_count == 1
+    assert [call.args[0] for call in sleep.call_args_list] == [1.0, 2.0]
+
+    retry_client = SimpleNamespace(
+        models=SimpleNamespace(
+            generate_content=Mock(
+                side_effect=[
+                    TemporaryGeminiError(),
+                    TemporaryGeminiError(),
+                    SimpleNamespace(text=json.dumps(generated)),
+                ]
+            )
+        )
+    )
+    with (
+        patch.dict(
+            os.environ,
+            {"GEMINI_API_KEY_VALUATION": "", "GEMINI_API_KEY": "test-key"},
+        ),
+        patch("google.genai.Client", return_value=retry_client),
+        patch("valuation_forecast_service.time.sleep") as sleep,
+    ):
+        retried_result = ValuationForecastService._generate_scenarios(
+            "AAA", "NORMAL", "Hàng tiêu dùng", "Công ty A", [], 10_000,
+            1_000_000, 100_000_000, None, None,
+        )
+    assert "error" not in retried_result
+    assert retry_client.models.generate_content.call_count == 3
+    assert [call.args[0] for call in sleep.call_args_list] == [1.0, 2.0]
+    unavailable_diagnostic = ValuationForecastService._describe_generation_error(
+        TemporaryGeminiError()
+    )
+    assert "đã thử gọi lại" in unavailable_diagnostic
+    assert not ValuationForecastService._is_transient_generation_error(
+        FakeClientError()
+    )
+
+
+def test_backtest_periods_and_realistic_execution_costs():
+    assert bt._settings_for_years(1).years == 1
+    assert bt._settings_for_years("3").years == 3
+    for unsupported in (False, 0, 1.5, 2, 5, "invalid"):
+        try:
+            bt._settings_for_years(unsupported)
+        except ValueError as exc:
+            assert "1 năm hoặc 3 năm" in str(exc)
+        else:
+            raise AssertionError(f"Unsupported backtest period accepted: {unsupported}")
+
+    settings = bt.BacktestSettings(
+        initial_capital=10_000_000,
+        buy_fee_pct=0.001,
+        sell_fee_pct=0.001,
+        sell_tax_pct=0.001,
+        slippage_pct=0.001,
+        lot_size=100,
+    )
+    purchase = bt._buy_position(settings.initial_capital, 50_000, settings)
+    assert purchase["quantity"] == 100
+    assert purchase["cash_after"] >= 0
+    approx(purchase["execution_price"], 50_050)
+    approx(purchase["commission"], 5_005)
+
+    sale = bt._sell_position(purchase["quantity"], 55_000, settings)
+    approx(sale["execution_price"], 54_945)
+    approx(sale["commission"], 5_494.5)
+    approx(sale["sell_tax"], 5_494.5)
+    assert sale["net_proceeds"] < sale["gross_value"]
+    assert purchase["slippage_cost"] > 0 and sale["slippage_cost"] > 0
+    try:
+        bt.run_backtest("AAA", years=2)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("run_backtest accepted an unsupported period")
+
+
+def test_backtest_end_to_end_with_mocked_market_data():
+    dates = pd.bdate_range(end="2026-10-13", periods=500)
+    close = np.linspace(50_000, 60_000, len(dates))
+    prices = pd.DataFrame({
+        "time": dates,
+        "open": close - 100,
+        "high": close + 200,
+        "low": close - 200,
+        "close": close,
+        "volume": np.full(len(dates), 1_000_000),
+    })
+    signals = iter(("BUY", "SELL"))
+
+    def fake_signal(*_):
+        return {"code": next(signals, "HOLD")}
+
+    score = {
+        "score": 75,
+        "fundamental": {"score": 80},
+        "technical": {"score": 67},
+        "coverage_pct": 88,
+    }
+    with (
+        patch.object(bt.service, "get_history", return_value=(prices, None, False)),
+        patch.object(bt.service, "confirmed_bars", side_effect=lambda frame: frame),
+        patch.object(bt.service, "get_fundamental_tables", return_value=({}, None, None)),
+        patch.object(bt.charts, "compute_indicators", side_effect=lambda frame: frame),
+        patch.object(bt.ia, "_technical", return_value={}),
+        patch.object(bt, "_fundamental_asof", return_value={}),
+        patch.object(bt.ia, "_score_all", return_value=score),
+        patch.object(bt.ia, "_signal_from_score", side_effect=fake_signal),
+    ):
+        result = bt.run_backtest("AAA", years=1)
+
+    assert result["years"] == 1
+    assert result["trades"] == 1
+    assert result["win_rate_pct"] == 100.0
+    assert result["strategy_return_pct"] > 0
+    assert result["cagr_pct"] is not None
+    assert result["buy_hold_return_pct"] is not None
+    assert result["transaction_costs_vnd"] > 0
+    assert result["slippage_costs_vnd"] > 0
+    assert result["trade_log"][0]["return_pct"] > 0
 
 
 def test_pdf_without_chart():
@@ -191,8 +518,11 @@ if __name__=="__main__":
         test_weights_and_formula,
         test_signals,
         test_technical_and_history,
-        test_three_scenario_valuation_and_profiles,
+        test_three_scenario_gemini_valuation_is_independent,
         test_financial_valuation_uses_pb_and_requires_real_inputs,
+        test_valuation_requires_gemini_and_validates_ai_response,
+        test_backtest_periods_and_realistic_execution_costs,
+        test_backtest_end_to_end_with_mocked_market_data,
         test_pdf_without_chart,
     ]
     for fn in tests:

@@ -20,6 +20,7 @@ import json
 import threading
 from math import ceil
 from statistics import median
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,8 @@ import annual_report_service
 from config import BANK_SYMBOLS, INSURANCE_SYMBOLS, SECURITIES_SYMBOLS
 from utils import normalize_text, to_float
 from valuation_forecast_service import ValuationForecastService
+
+log = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 REFERENCE_PATH = BASE_DIR / "data" / "valuation_reference.json"
@@ -471,6 +474,7 @@ def _financial_history(income: pd.DataFrame, balance: pd.DataFrame, kind: str, m
             "revenue_growth": rev_growth,
             "npat": profit,
             "profit_growth": profit_growth,
+            "equity": eq.get(year),
             "roe": roe,
             "roa": roa,
             "de": de.get(year),
@@ -1073,24 +1077,23 @@ def analyze_investment(symbol: str) -> dict:
     generated_at = info.get("generated_at") or datetime.now().strftime("%H:%M %d/%m/%Y")
 
     # =========================================================================
-    # KÍCH HOẠT DỰ PHÓNG 3 NĂM & ĐỊNH GIÁ CHUYÊN SÂU (GATEKEEPER THEO TÍN HIỆU MUA)
+    # ĐỊNH GIÁ KỊCH BẢN ĐỘC LẬP VỚI TÍN HIỆU L2
     # =========================================================================
-    deep_valuation_data = None
     signal_code = str((signal or {}).get("code") or "").upper()
-    signal_label = str((signal or {}).get("label") or "").upper()
-    
-    if signal_code == "BUY" or "MUA" in signal_label:
-        try:
-            deep_valuation_data = ValuationForecastService.execute(
-                symbol=s,
-                signal_code="BUY",
-                fundamental_data=fund,
-                technical_data=tech,
-                company_info=profile
-            )
-        except Exception as exc:
-            notes.append(f"Không thể hoàn thành định giá chuyên sâu: {exc}")
-            deep_valuation_data = None
+    try:
+        deep_valuation_data = ValuationForecastService.execute(
+            symbol=s,
+            fundamental_data=fund,
+            technical_data=tech,
+            company_info=profile
+        )
+    except Exception as exc:
+        log.exception("Independent valuation failed for %s", s)
+        notes.append(f"Không thể hoàn thành định giá chuyên sâu: {type(exc).__name__}")
+        deep_valuation_data = {
+            "status": "VALUATION_FAILED",
+            "message": "Đã xảy ra lỗi khi tính định giá. Kiểm tra nhật ký máy chủ để biết chi tiết.",
+        }
 
     # Cập nhật nhận xét 3 nhóm kinh tế chuyên sâu có bổ sung giá mục tiêu nếu có
     fund["comments"] = _economic_comments(

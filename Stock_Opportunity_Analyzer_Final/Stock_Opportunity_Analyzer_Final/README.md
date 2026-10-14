@@ -8,8 +8,10 @@
 
 - Tìm kiếm mã và xem hồ sơ doanh nghiệp, tài chính cơ bản, xu hướng giá, chỉ báo kỹ thuật và tin tức.
 - Chấm điểm cơ bản/kỹ thuật theo trọng số 60/40 và hiển thị độ phủ dữ liệu.
-- Xem dự phóng, định giá chuyên sâu khi đủ điều kiện, cùng bảng chi tiết số liệu lịch sử.
-- Chạy backtest, so sánh cổ phiếu cùng ngành và xuất báo cáo PDF.
+- Xem định giá độc lập với tín hiệu L2: Gemini đề xuất giả định cho 3 kịch bản, ứng dụng tự tính giá mục tiêu P/E hoặc P/B; dùng `GEMINI_API_KEY_VALUATION` riêng hoặc `GEMINI_API_KEY` dự phòng.
+- Chạy backtest trong hai khoảng 1 năm hoặc 3 năm, so sánh với Buy & Hold và xem nhật ký giao dịch.
+- Backtest giả lập vốn 100 triệu VNĐ, lô 100 cổ phiếu, phí mua/bán 0,10%, thuế bán 0,10% và trượt giá 0,10%; đây là mô phỏng tham khảo, chưa bao gồm cổ tức và thanh khoản thực tế.
+- So sánh cổ phiếu cùng ngành và xuất báo cáo PDF.
 - Dùng chatbot giải thích kết quả; một số tính năng AI được cải thiện khi cấu hình API key.
 
 ## Yêu cầu
@@ -44,11 +46,13 @@ Web có thể khởi động mà không cần API key. Dữ liệu thị trườ
 Để bật hoặc cải thiện các tính năng AI, tạo file `.env` trong thư mục chứa `web_app.py` bằng Notepad, rồi thêm những biến bạn có key:
 
 ```dotenv
+GEMINI_API_KEY_VALUATION=điền_key_Gemini_riêng_cho_định_giá
 GEMINI_API_KEY=điền_key_Gemini_của_bạn_nếu_muốn_dùng
 GROQ_API_KEY=điền_key_Groq_của_bạn_nếu_muốn_dùng
 ```
 
-- `GEMINI_API_KEY`: dùng cho một số phần bổ sung thông tin doanh nghiệp và phân tích tin tức.
+- `GEMINI_API_KEY_VALUATION`: tùy chọn, dành riêng cho mục định giá 3 kịch bản. Ứng dụng ưu tiên key này; nếu chưa cấu hình hoặc Gemini gặp lỗi kết nối/503 sau khi thử lại, ứng dụng dùng `GEMINI_API_KEY` làm dự phòng. Key chỉ được truyền vào client `google-genai` riêng của dịch vụ định giá.
+- `GEMINI_API_KEY`: key Gemini dùng chung cho thông tin doanh nghiệp và tin tức, đồng thời là key dự phòng cho định giá nếu key chuyên biệt chưa có hoặc không kết nối được. Định giá thử `gemini-2.5-flash` trước và tự chuyển sang `gemini-3.8-flash` nếu model 2.5 không khả dụng.
 - `GROQ_API_KEY`: dùng cho câu trả lời chatbot qua Groq; chatbot vẫn có thể trả lời theo quy tắc khi không có key.
 - `VNSTOCK_API_KEY`: tùy chọn; có thể cấu hình để dùng quota VNStock phù hợp với tài khoản của bạn.
 - `TELEGRAM_BOT_TOKEN`: chỉ cần khi chạy Telegram bot, không cần để chạy web.
