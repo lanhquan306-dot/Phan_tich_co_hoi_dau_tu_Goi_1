@@ -7,6 +7,7 @@ import numpy as np
 import chart_service as charts
 import investment_analysis as ia
 import report_pdf
+from valuation_forecast_service import ValuationForecastService
 
 
 def approx(got, want, tol=1e-8):
@@ -91,6 +92,89 @@ def test_technical_and_history():
     assert all("revenue" in r and "npat" in r for r in hist)
 
 
+def test_three_scenario_valuation_and_profiles():
+    history = [
+        {"year": 2022, "revenue": 80_000_000_000, "revenue_growth": 8.0, "npat": 8_000_000_000, "roe": 12.0},
+        {"year": 2023, "revenue": 92_000_000_000, "revenue_growth": 15.0, "npat": 9_200_000_000, "roe": 13.0},
+        {"year": 2024, "revenue": 105_000_000_000, "revenue_growth": 14.1, "npat": 11_550_000_000, "roe": 14.0},
+        {"year": 2025, "revenue": 120_000_000_000, "revenue_growth": 14.3, "npat": 14_400_000_000, "roe": 15.0},
+    ]
+    fundamental = {
+        "company_type": "regular",
+        "history": history,
+        "criteria": {
+            "pe": {"value": 12.0},
+            "pb": {"value": 1.5},
+            "de": {"value": 0.8},
+        },
+        "valuation_reference": {"pe": 13.0, "pb": 1.4},
+    }
+    result = ValuationForecastService.execute(
+        "AAA",
+        "BUY",
+        fundamental,
+        {"close": 10_000},
+        {"issued_share": 12_000_000, "industry": "Công nghệ"},
+    )
+    assert result["status"] == "COMPLETED", result
+    assert set(result["scenarios"]) == {"conservative", "base", "optimistic"}
+    assert set(result["profile_evaluations"]) == {"conservative", "balanced", "growth"}
+    for scenario in result["scenarios"].values():
+        assert scenario["valuation"]["target_price_y3"] > 0
+        assert scenario["investment_metrics"]["fair_value_present"] > 0
+        assert len([key for key in scenario["forecast_projections"] if key.startswith("year_")]) == 3
+    assert result["valuation"] == result["scenarios"]["base"]["valuation"]
+    assert "không bị kết quả định giá ghi đè" in result["model_note"]
+    assert ValuationForecastService.execute(
+        "AAA", "HOLD", fundamental, {"close": 10_000}, {"issued_share": 12_000_000}
+    ) is None
+    missing_shares = ValuationForecastService.execute(
+        "AAA", "BUY", fundamental, {"close": 10_000}, {}
+    )
+    assert missing_shares["status"] == "INSUFFICIENT_DATA"
+    assert "số cổ phiếu lưu hành" in missing_shares["message"]
+
+    real_estate = ValuationForecastService.execute(
+        "AAA",
+        "BUY",
+        fundamental,
+        {"close": 10_000},
+        {"issued_share": 12_000_000, "industry": "Bất động sản"},
+    )
+    assert "RNAV chưa khả dụng" in real_estate["valuation"]["valuation_method"]
+    assert "không tự giả định giá trị RNAV" in real_estate["valuation"]["note"]
+
+
+def test_financial_valuation_uses_pb_and_requires_real_inputs():
+    history = [
+        {"year": 2023, "revenue": 40_000_000_000, "revenue_growth": 8.0, "npat": 8_000_000_000, "roe": 16.0},
+        {"year": 2024, "revenue": 44_000_000_000, "revenue_growth": 10.0, "npat": 9_000_000_000, "roe": 17.0},
+        {"year": 2025, "revenue": 49_000_000_000, "revenue_growth": 11.4, "npat": 10_000_000_000, "roe": 18.0},
+    ]
+    fundamental = {
+        "company_type": "bank",
+        "history": history,
+        "criteria": {"pb": {"value": 1.2}, "roe": {"value": 18.0}},
+        "bvps": 12_000,
+        "valuation_reference": {"pb": 1.3},
+    }
+    result = ValuationForecastService.execute(
+        "BBB", "BUY", fundamental, {"close": 14_400}, {}
+    )
+    assert result["status"] == "COMPLETED", result
+    assert "P/B" in result["valuation"]["valuation_method"]
+    assert result["forecast_projections"]["year_3"]["bvps"] > 0
+    assert result["scenarios"]["conservative"]["valuation"]["target_multiplier"] < result["scenarios"]["optimistic"]["valuation"]["target_multiplier"]
+
+    missing_book_value = {**fundamental, "bvps": None, "valuation_reference": {}}
+    missing_book_value["criteria"] = {"roe": {"value": 18.0}}
+    unavailable = ValuationForecastService.execute(
+        "BBB", "BUY", missing_book_value, {"close": 14_400}, {}
+    )
+    assert unavailable["status"] == "INSUFFICIENT_DATA"
+    assert "BVPS" in unavailable["message"]
+
+
 def test_pdf_without_chart():
     fund=full_fund(); fund.update({"latest_period":"2026-Q2","source":"TEST","comments":{"growth":[],"profitability_leverage":[],"valuation":[]},"history":[]})
     tech=full_tech(); tech.update({"close":100000,"ma20":99000,"ma50":95000,"date":"2026-10-09","vol_ratio":1.2})
@@ -103,7 +187,14 @@ def test_pdf_without_chart():
 
 
 if __name__=="__main__":
-    tests=[test_weights_and_formula,test_signals,test_technical_and_history,test_pdf_without_chart]
+    tests=[
+        test_weights_and_formula,
+        test_signals,
+        test_technical_and_history,
+        test_three_scenario_valuation_and_profiles,
+        test_financial_valuation_uses_pb_and_requires_real_inputs,
+        test_pdf_without_chart,
+    ]
     for fn in tests:
         fn(); print("PASS",fn.__name__)
     print(f"ALL PASS ({len(tests)} nhóm investment)")

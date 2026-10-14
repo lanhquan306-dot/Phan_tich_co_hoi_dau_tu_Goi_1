@@ -688,22 +688,60 @@ function render(){
       <section class="card section span12" id="deep-valuation" style="${D.deep_valuation && D.deep_valuation.status === 'COMPLETED' ? 'border: 1px solid var(--green); background: rgba(47, 209, 155, 0.03);' : ''}">
         <h2>3. Dự phóng KQKD 3 năm & Định giá chuyên sâu</h2>
         ${(D.deep_valuation && D.deep_valuation.status === "COMPLETED") ? `
-          <p class="muted tiny">${esc(D.deep_valuation.forecast_projections.assumptions)}</p>
-          <h3>Dự phóng kết quả kinh doanh 3 năm</h3>
+          <p class="muted tiny">${esc(D.deep_valuation.model_note)}</p>
+          <h3>Đối chiếu theo hồ sơ đầu tư</h3>
+          <div class="profile-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));">
+            ${Object.values(D.deep_valuation.profile_evaluations).map(profile => `
+              <div class="profile-item">
+                <small>${esc(profile.name)} · kịch bản ${esc(profile.scenario_name)}</small>
+                <b class="${profile.eligible ? 'up' : 'warn'}" style="display:block;margin:5px 0;">${esc(profile.verdict)}</b>
+                <span class="muted tiny">${esc(profile.description)}</span>
+                <div class="tiny muted" style="margin-top:8px;">Ngưỡng: MoS ≥ ${Number(profile.required_margin_of_safety_pct).toFixed(0)}% · IRR ≥ ${Number(profile.min_required_irr_pct).toFixed(0)}% · Upside ≥ ${Number(profile.min_required_upside_pct).toFixed(0)}%</div>
+                <ul class="method-list tiny" style="margin-top:7px;">
+                  ${profile.checks.map(check => `<li class="${check.passed ? 'up' : 'down'}">${check.passed ? 'Đạt' : 'Chưa đạt'} · ${esc(check.label)}</li>`).join("")}
+                </ul>
+              </div>
+            `).join("")}
+          </div>
+          <h3>So sánh 3 kịch bản định giá (cuối năm 3)</h3>
           <div class="table-wrap">
             <table class="table">
               <thead>
-                <tr><th>Năm</th><th>Doanh thu dự phóng</th><th>Tăng trưởng DT</th><th>LNST dự phóng</th><th>EPS dự phóng</th></tr>
+                <tr><th>Kịch bản</th><th>Phương pháp</th><th>Giá mục tiêu</th><th>Giá trị hợp lý hiện tại</th><th>Upside 3 năm</th><th>IRR/năm</th><th>Biên an toàn</th></tr>
+              </thead>
+              <tbody>
+                ${Object.values(D.deep_valuation.scenarios).map(scenario => {
+                  const metrics = scenario.investment_metrics;
+                  return `<tr>
+                    <td><b>${esc(scenario.name)}</b></td>
+                    <td>${esc(scenario.valuation.valuation_method)} · ${Number(scenario.valuation.target_multiplier).toFixed(1)}${esc(scenario.valuation.multiplier_unit)}</td>
+                    <td>${money(scenario.valuation.target_price_y3)} VND</td>
+                    <td>${money(metrics.fair_value_present)} VND</td>
+                    <td class="${metrics.upside_pct >= 0 ? 'up' : 'down'}">${Number(metrics.upside_pct).toFixed(1)}%</td>
+                    <td class="${metrics.expected_irr_annual >= 0 ? 'up' : 'down'}">${Number(metrics.expected_irr_annual).toFixed(1)}%</td>
+                    <td>${Number(metrics.margin_of_safety_pct).toFixed(1)}%</td>
+                  </tr>`;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+          <h3>Dự phóng chi tiết 3 năm · Kịch bản cơ sở</h3>
+          <p class="muted tiny">${esc(D.deep_valuation.forecast_projections.assumptions)} Giá trị cổ phiếu dùng EPS cho P/E hoặc BVPS cho P/B.</p>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr><th>Năm</th><th>Doanh thu dự phóng</th><th>Tăng trưởng DT</th><th>LNST dự phóng</th><th>EPS / BVPS dự phóng</th></tr>
               </thead>
               <tbody>
                 ${['year_1', 'year_2', 'year_3'].map(k => {
                   const item = D.deep_valuation.forecast_projections[k];
-                  return `<tr><td><b>Năm ${k === 'year_1' ? '1' : k === 'year_2' ? '2' : '3'} (${item.year})</b></td><td>${money(item.revenue)} VND</td><td class="up">+${item.rev_growth_pct.toFixed(1)}%</td><td>${money(item.npat)} VND</td><td>${item.eps ? money(item.eps) + ' VND' : '—'}</td></tr>`;
+                  const perShareValue = item.bvps || item.eps;
+                  return `<tr><td><b>Năm ${k === 'year_1' ? '1' : k === 'year_2' ? '2' : '3'} (${item.year})</b></td><td>${money(item.revenue)} VND</td><td class="${item.rev_growth_pct >= 0 ? 'up' : 'down'}">${item.rev_growth_pct.toFixed(1)}%</td><td>${money(item.npat)} VND</td><td>${perShareValue ? money(perShareValue) + ' VND' : '—'}</td></tr>`;
                 }).join('')}
               </tbody>
             </table>
           </div>
-          <h3 style="margin-top: 20px;">Kết quả định giá & Tỷ suất sinh lời kỳ vọng</h3>
+          <h3 style="margin-top:20px;">Kết quả kịch bản cơ sở</h3>
           <div class="profile-grid" style="grid-template-columns: repeat(4, 1fr); margin-top: 10px;">
             <div class="profile-item"><small>Phương pháp</small><b style="font-size: 13px;">${esc(D.deep_valuation.valuation.valuation_method)}</b></div>
             <div class="profile-item"><small>Giá mục tiêu cuối Năm 3</small><b class="up" style="font-size: 17px;">${money(D.deep_valuation.valuation.target_price_y3)} VND</b></div>
@@ -713,8 +751,12 @@ function render(){
           <div class="comment" style="margin-top: 14px;"><b>Ghi chú:</b> ${esc(D.deep_valuation.valuation.note)}</div>
         ` : `
           <div class="notice">
-            <b>Cơ chế kiểm soát (Gatekeeper):</b> Mô hình dự phóng 3 năm và định giá chuyên sâu chỉ tự động kích hoạt khi cổ phiếu đạt tín hiệu <b>MUA (BUY)</b>. 
-            Mã <b>${esc(D.symbol)}</b> hiện có tín hiệu là <b>${esc(sg.label)}</b> nên tiếp tục áp dụng quy trình phân tích và theo dõi thông thường.
+            ${D.deep_valuation ? `
+              <b>Chưa thể hoàn tất định giá:</b> ${esc(D.deep_valuation.message||"Dữ liệu đầu vào chưa đủ để tính toán đáng tin cậy.")}
+            ` : `
+              <b>Cơ chế kiểm soát (Gatekeeper):</b> Mô hình dự phóng 3 năm và định giá chuyên sâu chỉ tự động kích hoạt khi cổ phiếu đạt tín hiệu <b>MUA (BUY)</b>.
+              Mã <b>${esc(D.symbol)}</b> hiện có tín hiệu là <b>${esc(sg.label)}</b> nên chưa chạy định giá chuyên sâu.
+            `}
           </div>
         `}
       </section>
