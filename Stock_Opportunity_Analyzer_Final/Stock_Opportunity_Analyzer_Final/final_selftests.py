@@ -3,7 +3,7 @@ from pathlib import Path
 
 import investment_analysis as ia
 import annual_report_service
-import report_pdf
+import report_pdf_new as report_pdf
 from investment_selftests import full_fund, full_tech
 
 

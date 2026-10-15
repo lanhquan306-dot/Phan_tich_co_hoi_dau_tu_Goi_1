@@ -31,7 +31,7 @@ from urllib.parse import parse_qs, urlparse
 import chart_service as charts
 import investment_analysis as investment
 import investment_chat
-import report_pdf
+import report_pdf_new as report_pdf
 import opportunity_backtest
 import stock_service as service
 import multi_stock_validation
