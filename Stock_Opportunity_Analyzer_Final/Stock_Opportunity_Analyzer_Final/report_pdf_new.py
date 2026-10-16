@@ -13,6 +13,8 @@ import io
 import math
 import textwrap
 import re
+import threading
+import time
 from pathlib import Path
 
 import matplotlib
@@ -216,11 +218,18 @@ def table(ax, x, y, widths, head, rows, size=7, row_h=6.2, aligns=None,
 
 
 def table_height(widths, head, rows, **kw):
-    """Đo chiều cao bảng bằng cách vẽ thử trên trang tạm."""
-    fig, ax = new_page()
-    h = table(ax, 0, 0, widths, head, rows, **kw)
-    plt.close(fig)
-    return h
+    """Tính đúng chiều cao bảng mà không dựng một Figure matplotlib tạm."""
+    size = kw.get("size", 7)
+    row_h = kw.get("row_h", 6.2)
+    wrap_cols = set(kw.get("wrap_cols", ()))
+    lh = size * 0.3528 * 1.45
+    total = row_h
+    for row in rows:
+        counts = []
+        for ci, c in enumerate(row):
+            counts.append(len(wrap(str(c), widths[ci] - 4, size)) if ci in wrap_cols else 1)
+        total += max(row_h, max(counts or [1]) * lh + 2.4)
+    return total
 
 
 def gauge(ax, cx, cy, r, score):
@@ -710,7 +719,7 @@ def _news_page_specs(d):
         add_line("TÓM TẮT NỘI DUNG", 8.5, "heading")
 
         summary = n["summary"] or "Chưa có tóm tắt từ nguồn dữ liệu."
-        if "GEMINI_API_KEY" in summary or "Chưa cấu hình" in summary:
+        if "GROQ_API_KEY" in summary or "Chưa cấu hình" in summary:
             summary = "Chưa có tóm tắt tin tức."
 
         add_text(summary, 8.5, "normal")
@@ -783,26 +792,63 @@ def page_news(d, spec, page_no):
 
 # Trang bìa cố định theo thiết kế Nhóm 1. Ảnh đặt cùng thư mục với file Python.
 COVER_IMAGE = Path(__file__).resolve().parent / 'report_cover.jpg'
+_COVER_ARRAY = None
+_COVER_LOCK = threading.Lock()
+_CHART_CACHE: dict[str, tuple[float, object]] = {}
+_CHART_CACHE_LOCK = threading.Lock()
+_CHART_CACHE_TTL = 300.0
 
 def page_cover():
     if not COVER_IMAGE.is_file():
         raise FileNotFoundError(
             f'Thiếu ảnh bìa {COVER_IMAGE}. Hãy đặt report_cover.jpg cùng thư mục report_pdf_new.py.'
         )
+    global _COVER_ARRAY
+    if _COVER_ARRAY is None:
+        with _COVER_LOCK:
+            if _COVER_ARRAY is None:
+                _COVER_ARRAY = mpimg.imread(str(COVER_IMAGE))
     fig, ax = new_page()
-    cover = mpimg.imread(str(COVER_IMAGE))
-    ax.imshow(cover, extent=(0, W, H, 0), aspect='auto', interpolation='lanczos', zorder=1)
+    ax.imshow(_COVER_ARRAY, extent=(0, W, H, 0), aspect='auto', interpolation='lanczos', zorder=1)
     ax.set_xlim(0, W)
     ax.set_ylim(H, 0)
     return fig
+
+
+def _page4_overflow_needed(d) -> bool:
+    rows = [[c["name"], c["value"], f"{c['max']:g}", "N/A" if c["na"] else f"{c['got']:.1f}"] for c in d["components"]]
+    tmax = sum(c["max"] for c in d["components"])
+    tgot = sum(c["got"] for c in d["components"])
+    rows.append(["Tổng điểm", "", f"{tmax:g}", f"{tgot:.1f}"])
+    yb = 26 + table_height([52,26,24,24], ["Tiêu chí","Giá trị","Điểm tối đa","Điểm đạt"], rows, size=7, row_h=6.4)
+    y2 = max(yb, 84) + 8 + 6 + 29 + 4 + 22 + 3
+    # rules() are capped to 2 wrapped lines with lead 1.4; estimate conservatively.
+    for rule in d["rules"]:
+        n = min(2, max(1, len(wrap(str(rule), 190, 5.9))))
+        y2 += n * 5.9 * 0.3528 * 1.4
+    y2 += 4
+    need = 4 + table_height(SRC_W, SRC_HEAD, d["sources"] or [["N/A","","",""]], size=5.9, row_h=5.6, wrap_cols=(0,1,2,3)) + 20
+    return y2 + need > 284
+
+
+def _cached_chart_image(symbol: str):
+    now=time.time(); key=symbol.upper()
+    with _CHART_CACHE_LOCK:
+        hit=_CHART_CACHE.get(key)
+        if hit and now-hit[0] < _CHART_CACHE_TTL:
+            return hit[1]
+    frame, info = charts.build_chart_frame(key)
+    png = charts.render_chart_png(frame, info, "6M")
+    img = mpimg.imread(io.BytesIO(png), format="png")
+    with _CHART_CACHE_LOCK:
+        _CHART_CACHE[key]=(now,img)
+    return img
 
 def build_report_pdf(result: dict, *, include_chart: bool = True) -> bytes:
     chart_img = None
     if include_chart:
         try:
-            frame, info = charts.build_chart_frame(result["symbol"])
-            png = charts.render_chart_png(frame, info, "6M")
-            chart_img = mpimg.imread(io.BytesIO(png), format="png")
+            chart_img = _cached_chart_image(result["symbol"])
         except Exception:
             import traceback
             traceback.print_exc()
@@ -810,8 +856,7 @@ def build_report_pdf(result: dict, *, include_chart: bool = True) -> bytes:
     d = _view(result, chart_img)
     d["brand"] = {"primary": NAVY, "secondary": BLUE, "light": LIGHT, "logo": None}
     d["_total"] = 4
-    probe, overflow = page4(d)  # chạy thử để biết bảng nguồn có cần sang trang 5 không
-    plt.close(probe)
+    overflow = _page4_overflow_needed(d)
     d["_overflow"] = overflow
     news_specs = _news_page_specs(d)
     d["_total"] = 4 + int(overflow) + len(news_specs)

@@ -9,8 +9,8 @@
 - Tìm kiếm mã và xem hồ sơ doanh nghiệp, tài chính cơ bản, xu hướng giá, chỉ báo kỹ thuật và tin tức.
 - Chấm điểm cơ bản/kỹ thuật theo trọng số 60/40 và hiển thị độ phủ dữ liệu.
 - Xem dự phóng, định giá chuyên sâu khi đủ điều kiện, cùng bảng chi tiết số liệu lịch sử.
-- Chạy backtest, so sánh cổ phiếu cùng ngành và xuất báo cáo PDF.
-- Dùng chatbot giải thích kết quả; một số tính năng AI được cải thiện khi cấu hình API key.
+- Chạy backtest 1 năm, so với Buy & Hold và VN-Index; so sánh cổ phiếu cùng ngành và xuất báo cáo PDF.
+- Định giá chuyên sâu 3 kịch bản CHỈ chạy khi tín hiệu L2 là MUA (Groq đề xuất giả định, ứng dụng tự tính giá mục tiêu).
 
 ## Yêu cầu
 
@@ -23,19 +23,28 @@
 Mở PowerShell tại thư mục dự án có chứa `web_app.py` và `requirements.txt`. Nếu vừa clone toàn bộ repository GitHub, chạy:
 
 ```powershell
+cd Phan_tich_co_hoi_dau_tu_Goi_1
 cd Stock_Opportunity_Analyzer_Final\Stock_Opportunity_Analyzer_Final
 ```
 
 Nếu bạn đã ở thư mục có `web_app.py`, bỏ qua lệnh `cd`. Tạo môi trường ảo và cài thư viện:
 
 ```powershell
-py -3 --version
-py -3 -m venv .venv
+py -3.(phiên bản python hiện tại, ví dụ 3.12)--version
+py -3.(phiên bản python hiện tại, ví dụ 3.12) -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
 Các lệnh dùng trực tiếp Python trong `.venv`, nên không cần bật môi trường ảo hay thay đổi Execution Policy của PowerShell. Nếu `py -3 --version` không chạy được, cài Python 3.10 trở lên từ <https://www.python.org/downloads/> rồi mở lại PowerShell.
+
+*Nếu báo lỗi cài thư viện vnstock chạy lệnh sau:
+
+.\.venv\Scripts\python.exe -m pip install --extra-index-url https://vnstocks.com/api/simple "vnstock>=4.0.8,<5"
+
+Đợi cài xong hoàn tất sau đó chạy lại:
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
 
 ## Cấu hình (không bắt buộc)
 
@@ -44,12 +53,10 @@ Web có thể khởi động mà không cần API key. Dữ liệu thị trườ
 Để bật hoặc cải thiện các tính năng AI, tạo file `.env` trong thư mục chứa `web_app.py` bằng Notepad, rồi thêm những biến bạn có key:
 
 ```dotenv
-GEMINI_API_KEY=điền_key_Gemini_của_bạn_nếu_muốn_dùng
-GROQ_API_KEY=điền_key_Groq_của_bạn_nếu_muốn_dùng
+GROQ_API_KEY=điền_key_Groq_của_bạn
 ```
 
-- `GEMINI_API_KEY`: dùng cho một số phần bổ sung thông tin doanh nghiệp và phân tích tin tức.
-- `GROQ_API_KEY`: dùng cho câu trả lời chatbot qua Groq; chatbot vẫn có thể trả lời theo quy tắc khi không có key.
+- `GROQ_API_KEY`: dùng cho giả định định giá 3 kịch bản, hồ sơ doanh nghiệp và tin tức. Thiếu key thì phần định giá báo AI_UNAVAILABLE, các phần khác vẫn chạy.
 - `VNSTOCK_API_KEY`: tùy chọn; có thể cấu hình để dùng quota VNStock phù hợp với tài khoản của bạn.
 - `TELEGRAM_BOT_TOKEN`: chỉ cần khi chạy Telegram bot, không cần để chạy web.
 
@@ -95,6 +102,7 @@ Một số kiểm thử tự chạy của dự án có thể chạy bằng:
 ```powershell
 .\.venv\Scripts\python.exe selftests.py
 .\.venv\Scripts\python.exe investment_selftests.py
+.\.venv\Scripts\python.exe final_selftests.py
 ```
 
 ## Cấu trúc chính
@@ -107,7 +115,7 @@ stock_service.py               Lấy dữ liệu giá/thị trường
 chart_service.py               Chuẩn bị dữ liệu biểu đồ
 valuation_forecast_service.py  Dự phóng và định giá
 news_service.py                Tin tức doanh nghiệp
-report_pdf.py                  Báo cáo PDF
+report_pdf_new.py              Báo cáo PDF
 requirements.txt               Thư viện Python
 data/valuation_reference.json  Tham chiếu định giá
 templates/                     Giao diện web

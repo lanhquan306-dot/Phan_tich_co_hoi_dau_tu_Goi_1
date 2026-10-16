@@ -18,6 +18,7 @@ import re
 import threading
 import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, time as dtime
 from zoneinfo import ZoneInfo
 
@@ -133,6 +134,25 @@ class TTLCache:
 _cache = TTLCache()
 
 
+class _InFlightCall:
+    """Một loader đang chạy cho một cache key.
+
+    Khi nhiều thread cùng cần đúng một dữ liệu (ví dụ BCTC/ratio của cùng mã),
+    chỉ thread đầu tiên gọi nguồn mạng. Các thread còn lại chờ kết quả đó thay
+    vì tạo thêm request trùng lặp. Điều này đặc biệt quan trọng khi dashboard
+    chạy các phần phân tích song song.
+    """
+
+    def __init__(self):
+        self.event = threading.Event()
+        self.result = None
+        self.error: Exception | None = None
+
+
+_inflight_calls: dict[str, _InFlightCall] = {}
+_inflight_lock = threading.Lock()
+
+
 def cached_call(key: str, ttl: float, loader):
     """Trả về (giá_trị, lấy_từ_cache, là_cache_hết_hạn).
 
@@ -141,15 +161,46 @@ def cached_call(key: str, ttl: float, loader):
     cached = _cache.get(key, ttl)
     if cached is not None:
         return cached, True, False
+
+    # Single-flight: gom các request đồng thời cho cùng một key thành 1 loader.
+    with _inflight_lock:
+        flight = _inflight_calls.get(key)
+        if flight is None:
+            flight = _InFlightCall()
+            _inflight_calls[key] = flight
+            owner = True
+        else:
+            owner = False
+
+    if not owner:
+        flight.event.wait()
+        if flight.error is not None:
+            stale = _cache.get(key, ttl, allow_expired=True)
+            if stale is not None:
+                return stale, True, True
+            raise flight.error
+        # Trả bản sao giống semantics của TTLCache để caller không sửa cache.
+        value, _from_cache, stale_flag = flight.result
+        return _cache._clone(value), True, bool(stale_flag)
+
     try:
-        value = loader()
-    except Exception:
-        stale = _cache.get(key, ttl, allow_expired=True)
-        if stale is not None:
-            return stale, True, True
-        raise
-    _cache.set(key, value)
-    return value, False, False
+        try:
+            value = loader()
+        except Exception as exc:
+            stale = _cache.get(key, ttl, allow_expired=True)
+            if stale is not None:
+                flight.result = (stale, True, True)
+                return stale, True, True
+            flight.error = exc
+            raise
+
+        _cache.set(key, value)
+        flight.result = (value, False, False)
+        return value, False, False
+    finally:
+        flight.event.set()
+        with _inflight_lock:
+            _inflight_calls.pop(key, None)
 
 
 def now_vn() -> datetime:
@@ -399,15 +450,6 @@ def _fetch_company_profile_desc(symbol: str) -> str:
     except Exception:
         pass
 
-    try:
-        from vnstock import Vnstock
-        stock = Vnstock().stock(symbol=symbol, source='VCI')
-        df = stock.company.profile()
-        if df is not None and not df.empty:
-            row = df.iloc[0].to_dict()
-            return str(row.get("business_model") or row.get("main_service") or "").strip()
-    except Exception:
-        pass
     return ""
 
 
@@ -714,32 +756,44 @@ def _load_fundamentals_vci(symbol: str) -> dict:
     """
     from vnstock.explorer.vci.financial import Finance as VCIFinance
 
-    fin = vn_call(VCIFinance, symbol, period="quarter", get_all=True, show_log=False)
-
     def report(name):
+        # Mỗi worker có client riêng để tránh chia sẻ state nội bộ của VNStock
+        # giữa hai thread. Constructor là local nên không tiêu thụ quota mạng.
+        fin = VCIFinance(symbol, period="quarter", get_all=True, show_log=False)
         df = vn_call(fin._get_financial_report, name, period="quarter", lang="vi",
                      dropna=False, show_log=False, limit=500)
         return flatten_columns(pd.DataFrame(df)) if df is not None else pd.DataFrame()
 
-    return {"income_q": report("income_statement"), "balance_q": report("balance_sheet"), "source": "VCI"}
+    # Hai báo cáo độc lập, gọi song song để không cộng dồn latency mạng.
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="vci-financial") as pool:
+        income_future = pool.submit(report, "income_statement")
+        balance_future = pool.submit(report, "balance_sheet")
+        income_q = income_future.result()
+        balance_q = balance_future.result()
+    return {"income_q": income_q, "balance_q": balance_q, "source": "VCI"}
 
 
 def _load_fundamentals_kbs(symbol: str) -> dict:
     """KBS chỉ có 4 kỳ gần nhất nên thường thiếu cùng kỳ; chỉ dùng dự phòng."""
     from vnstock import Fundamental
 
-    equity = Fundamental().equity(symbol)
-
-    def report(fn):
+    def report(method_name):
         try:
+            # Tách object theo worker để parallel an toàn hơn.
+            equity = Fundamental().equity(symbol)
+            fn = getattr(equity, method_name)
             return flatten_columns(pd.DataFrame(vn_call(fn, period="quarter", orient="report")))
         except VnstockRateLimited:
             raise
         except Exception:
             return pd.DataFrame()
 
-    return {"income_q": report(equity.income_statement), "balance_q": report(equity.balance_sheet),
-            "source": "KBS"}
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="kbs-financial") as pool:
+        income_future = pool.submit(report, "income_statement")
+        balance_future = pool.submit(report, "balance_sheet")
+        income_q = income_future.result()
+        balance_q = balance_future.result()
+    return {"income_q": income_q, "balance_q": balance_q, "source": "KBS"}
 
 
 def _load_fundamentals(symbol: str) -> dict:

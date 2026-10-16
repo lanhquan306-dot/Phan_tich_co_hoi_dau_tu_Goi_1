@@ -1,119 +1,193 @@
-# Stock Opportunity Analyzer
+# Stock Opportunity Analyzer – FinTech Copilot
 
-Ứng dụng web phân tích cổ phiếu Việt Nam, kết hợp dữ liệu giá và báo cáo tài chính để hiển thị phân tích cơ bản, phân tích kỹ thuật, tín hiệu tham khảo, backtest và báo cáo PDF. Máy chủ web sử dụng HTTP server có sẵn trong Python, mặc định chạy riêng trên máy của bạn tại `127.0.0.1:8050`.
+Ứng dụng hỗ trợ phân tích cổ phiếu Việt Nam, kết hợp dữ liệu thị trường, chỉ tiêu tài chính, phân tích kỹ thuật, bộ quy tắc tạo tín hiệu tham khảo, công cụ backtest và giao diện tương tác qua website/Telegram.
 
-> Công cụ phục vụ học tập và tham khảo, không phải khuyến nghị đầu tư cá nhân hóa.
+> **Lưu ý:** Đây là dự án phục vụ học tập, nghiên cứu và tham khảo. Kết quả phân tích không phải khuyến nghị đầu tư cá nhân hóa và không bảo đảm lợi nhuận.
 
-## Tính năng
+## 1. Tính năng chính
 
-- Tìm kiếm mã và xem hồ sơ doanh nghiệp, tài chính cơ bản, xu hướng giá, chỉ báo kỹ thuật và tin tức.
-- Chấm điểm cơ bản/kỹ thuật theo trọng số 60/40 và hiển thị độ phủ dữ liệu.
-- Xem định giá độc lập với tín hiệu L2: Gemini đề xuất giả định cho 3 kịch bản, ứng dụng tự tính giá mục tiêu P/E hoặc P/B; dùng `GEMINI_API_KEY_VALUATION` riêng hoặc `GEMINI_API_KEY` dự phòng.
-- Chạy backtest trong hai khoảng 1 năm hoặc 3 năm, so sánh với Buy & Hold và xem nhật ký giao dịch.
-- Backtest giả lập vốn 100 triệu VNĐ, lô 100 cổ phiếu, phí mua/bán 0,10%, thuế bán 0,10% và trượt giá 0,10%; đây là mô phỏng tham khảo, chưa bao gồm cổ tức và thanh khoản thực tế.
-- So sánh cổ phiếu cùng ngành và xuất báo cáo PDF.
-- Dùng chatbot giải thích kết quả; một số tính năng AI được cải thiện khi cấu hình API key.
+- Tra cứu mã cổ phiếu và dữ liệu giá lịch sử.
+- Tổng hợp thông tin doanh nghiệp và các chỉ tiêu tài chính khi nguồn dữ liệu có cung cấp.
+- Tính toán chỉ báo kỹ thuật như đường trung bình động, RSI, ROC và các điều kiện breakout.
+- Chấm điểm theo quy tắc và tạo tín hiệu tham khảo BUY/HOLD/SELL hoặc trạng thái tương ứng của từng phân hệ.
+- Theo dõi trạng thái thị trường chung và áp dụng điều kiện lọc tín hiệu.
+- Phân tích, so sánh cổ phiếu và hỗ trợ giải thích kết quả bằng chatbot.
+- Hiển thị biểu đồ và cung cấp báo cáo PDF.
+- Kiểm định tín hiệu lịch sử và mô phỏng chiến lược giao dịch (backtest).
+- Website chạy cục bộ; Telegram bot là thành phần riêng và cần Telegram Bot Token.
 
-## Yêu cầu
+Một số chức năng AI phụ thuộc vào API key và trạng thái dịch vụ bên ngoài. Nếu chưa cấu hình Groq, các luồng trả lời theo quy tắc vẫn có thể hoạt động ở những chức năng đã được thiết kế hỗ trợ dự phòng.
 
-- Windows 10/11 và Python 3.10 trở lên.
-- Kết nối Internet để cài thư viện và lấy dữ liệu thị trường.
-- Không cần cài Node.js, Flask hoặc cơ sở dữ liệu riêng để chạy web.
+## 2. Công nghệ
 
-## Cài đặt trên Windows
+- **Python** – ngôn ngữ chính.
+- **Pandas, NumPy** – xử lý dữ liệu và tính toán.
+- **VNStock** – truy xuất dữ liệu thị trường theo nguồn được hỗ trợ.
+- **Matplotlib** – tạo biểu đồ.
+- **python-telegram-bot** – tích hợp Telegram.
+- **OpenAI Python SDK** – gọi API tương thích OpenAI; trong cấu hình chatbot, endpoint được trỏ đến Groq.
+- **Google GenAI SDK** – hỗ trợ những chức năng AI được cấu hình trong các mô-đun liên quan.
+- **python-dotenv** – nạp biến môi trường từ tệp `.env`.
+- **HTTP server tích hợp của Python** – phục vụ website, không yêu cầu Flask để khởi chạy máy chủ web chính.
 
-Mở PowerShell tại thư mục dự án có chứa `web_app.py` và `requirements.txt`. Nếu vừa clone toàn bộ repository GitHub, chạy:
+## 3. Yêu cầu hệ thống
 
-```powershell
-cd Stock_Opportunity_Analyzer_Final\Stock_Opportunity_Analyzer_Final
-```
+- Windows 10/11 hoặc hệ điều hành có Python tương thích.
+- Python 3.10 trở lên; nên dùng một phiên bản Python 3.x ổn định tương thích với các thư viện trong `requirements.txt`.
+- Kết nối Internet để cài thư viện, truy xuất dữ liệu thị trường và gọi dịch vụ API.
+- API key tương ứng nếu muốn sử dụng các tính năng AI hoặc nguồn dữ liệu yêu cầu xác thực.
 
-Nếu bạn đã ở thư mục có `web_app.py`, bỏ qua lệnh `cd`. Tạo môi trường ảo và cài thư viện:
+## 4. Cài đặt trên Windows
+
+### Bước 1: Giải nén và mở đúng thư mục
+
+Giải nén dự án, sau đó mở PowerShell tại thư mục chứa các tệp `web_app.py`, `bot.py` và `requirements.txt`.
+
+Nếu PowerShell đang ở thư mục ngoài, dùng `cd` để chuyển đến thư mục dự án. Đường dẫn chính xác tùy vị trí bạn giải nén.
+
+### Bước 2: Tạo môi trường ảo
 
 ```powershell
 py -3 --version
 py -3 -m venv .venv
+```
+
+### Bước 3: Cài đặt thư viện
+
+```powershell
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Các lệnh dùng trực tiếp Python trong `.venv`, nên không cần bật môi trường ảo hay thay đổi Execution Policy của PowerShell. Nếu `py -3 --version` không chạy được, cài Python 3.10 trở lên từ <https://www.python.org/downloads/> rồi mở lại PowerShell.
+Nếu lệnh `py` không hoạt động, hãy cài Python từ trang chính thức: <https://www.python.org/downloads/> rồi mở lại PowerShell.
 
-## Cấu hình (không bắt buộc)
+## 5. Cấu hình biến môi trường/API
 
-Web có thể khởi động mà không cần API key. Dữ liệu thị trường vẫn cần kết nối Internet và có thể chịu giới hạn truy cập/quota của nguồn dữ liệu.
+1. Tìm tệp `.env.example` trong thư mục dự án.
+2. Sao chép tệp đó thành `.env` trong cùng thư mục với `config.py`.
+3. Mở `.env` bằng trình soạn thảo văn bản và điền các khóa API của chính bạn vào đúng biến được khai báo trong tệp mẫu.
+4. Không đăng tải `.env` lên GitHub hoặc gửi API key qua ảnh chụp màn hình, nhóm chat hay báo cáo.
 
-Để bật hoặc cải thiện các tính năng AI, tạo file `.env` trong thư mục chứa `web_app.py` bằng Notepad, rồi thêm những biến bạn có key:
+Các biến quan trọng thường gặp trong cấu hình dự án:
 
-```dotenv
-GEMINI_API_KEY_VALUATION=điền_key_Gemini_riêng_cho_định_giá
-GEMINI_API_KEY=điền_key_Gemini_của_bạn_nếu_muốn_dùng
-GROQ_API_KEY=điền_key_Groq_của_bạn_nếu_muốn_dùng
-```
+| Biến | Mục đích |
+|---|---|
+| `GROQ_API_KEY` | API key để chatbot sử dụng mô hình ngôn ngữ qua Groq. |
+| `GROQ_MODEL` | Tên mô hình Groq; mã nguồn đặt mặc định `openai/gpt-oss-20b` nếu không cấu hình giá trị khác. |
+| `TELEGRAM_BOT_TOKEN` | Token do BotFather cấp để chạy bot Telegram. |
+| `VNSTOCK_API_KEY` | Tùy chọn, sử dụng khi cần xác thực/quota VNStock theo cấu hình. |
+| Các biến Google GenAI | Chỉ cần khi sử dụng những chức năng Google AI tương ứng; hãy kiểm tra tên biến chính xác trong `.env.example` và `config.py`. |
 
-- `GEMINI_API_KEY_VALUATION`: tùy chọn, dành riêng cho mục định giá 3 kịch bản. Ứng dụng ưu tiên key này; nếu chưa cấu hình hoặc Gemini gặp lỗi kết nối/503 sau khi thử lại, ứng dụng dùng `GEMINI_API_KEY` làm dự phòng. Key chỉ được truyền vào client `google-genai` riêng của dịch vụ định giá.
-- `GEMINI_API_KEY`: key Gemini dùng chung cho thông tin doanh nghiệp và tin tức, đồng thời là key dự phòng cho định giá nếu key chuyên biệt chưa có hoặc không kết nối được. Định giá thử `gemini-2.5-flash` trước và tự chuyển sang `gemini-3.8-flash` nếu model 2.5 không khả dụng.
-- `GROQ_API_KEY`: dùng cho câu trả lời chatbot qua Groq; chatbot vẫn có thể trả lời theo quy tắc khi không có key.
-- `VNSTOCK_API_KEY`: tùy chọn; có thể cấu hình để dùng quota VNStock phù hợp với tài khoản của bạn.
-- `TELEGRAM_BOT_TOKEN`: chỉ cần khi chạy Telegram bot, không cần để chạy web.
-
-Không đưa `.env` hoặc API key lên GitHub, không chia sẻ key trong ảnh chụp màn hình hay chat. File `.env` đã được loại khỏi Git bằng `.gitignore`.
-
-Một số tùy chọn máy chủ có thể đặt trong `.env`:
+Ví dụ minh họa cấu hình chatbot (không phải API key thật):
 
 ```dotenv
-DASHBOARD_HOST=127.0.0.1
-DASHBOARD_PORT=8050
+GROQ_API_KEY=your_groq_api_key_here
+GROQ_MODEL=openai/gpt-oss-20b
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
 ```
 
-`127.0.0.1` chỉ cho phép truy cập từ máy đang chạy ứng dụng. Không đổi host sang địa chỉ công khai nếu chưa cấu hình bảo vệ và hiểu rõ rủi ro khi mở máy chủ ra Internet.
+Lấy Groq API key tại <https://console.groq.com/keys>.
 
-## Chạy website
+Tạo Telegram bot và lấy token qua <https://t.me/BotFather>. Không gửi token cho người khác vì token cho phép điều khiển bot.
 
-Từ thư mục có `web_app.py`, chạy:
+Nếu không dùng chức năng Telegram, không cần cấu hình `TELEGRAM_BOT_TOKEN` để chạy website. Một số chức năng AI khác có thể yêu cầu khóa Google GenAI riêng; xem `.env.example` để biết biến tương ứng của phiên bản đang sử dụng.
+
+## 6. Chạy website
+
+Từ thư mục chứa `web_app.py`, chạy:
 
 ```powershell
 .\.venv\Scripts\python.exe web_app.py
 ```
 
-Giữ cửa sổ PowerShell đang chạy máy chủ, rồi mở:
+Sau khi máy chủ khởi động, mở trình duyệt tại:
 
 - Trang chủ: <http://127.0.0.1:8050/>
-- Trang phân tích mẫu: <http://127.0.0.1:8050/analysis/FPT>
-- Kiểm tra máy chủ: <http://127.0.0.1:8050/healthz>
+- Trang phân tích mẫu (nếu route được bật): <http://127.0.0.1:8050/analysis/FPT>
+- Endpoint kiểm tra tình trạng máy chủ (nếu có): <http://127.0.0.1:8050/healthz>
 
-Nhập mã cổ phiếu trên trang chủ để phân tích mã khác. Dừng máy chủ bằng `Ctrl+C`.
+Địa chỉ và cổng mặc định có thể thay đổi qua cấu hình. Giữ cửa sổ terminal mở trong khi sử dụng website. Nhấn `Ctrl+C` để dừng máy chủ.
 
-## Xử lý lỗi thường gặp
+## 7. Chạy Telegram bot
 
-- **`No module named 'google'` hoặc `No module named 'vnstock'`:** kiểm tra đang ở đúng thư mục dự án và chạy lại `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`.
-- **Cổng 8050 đang được sử dụng:** đóng tiến trình đang dùng cổng đó hoặc đặt `DASHBOARD_PORT=8051` trong `.env`, sau đó mở `http://127.0.0.1:8051/`.
-- **Thiếu dữ liệu/mã không phân tích được:** kiểm tra Internet, mã cổ phiếu và thử lại sau; nguồn dữ liệu bên ngoài có thể giới hạn quota hoặc tạm thời gián đoạn.
-- **Chatbot/AI không có phản hồi AI:** kiểm tra API key tương ứng trong `.env`. Web và các phần phân tích không yêu cầu Telegram token.
-- **PowerShell không nhận `py`:** cài Python từ trang chính thức, bật Python Launcher trong bộ cài nếu có, rồi mở cửa sổ PowerShell mới.
+Đảm bảo đã điền `TELEGRAM_BOT_TOKEN` trong `.env`, sau đó mở một cửa sổ PowerShell khác tại thư mục dự án và chạy:
 
-## Chạy kiểm thử
+```powershell
+.\.venv\Scripts\python.exe bot.py
+```
 
-Một số kiểm thử tự chạy của dự án có thể chạy bằng:
+Nếu bot không khởi động:
+
+- Kiểm tra token đã được điền đúng và không có dấu cách thừa.
+- Kiểm tra kết nối Internet.
+- Kiểm tra thư viện đã được cài bằng `requirements.txt`.
+- Không công khai token trong log, ảnh chụp màn hình hoặc kho mã nguồn.
+
+Website và Telegram bot là hai tiến trình riêng. Nếu cần sử dụng đồng thời cả hai, hãy chạy mỗi tiến trình trong một cửa sổ terminal riêng.
+
+## 8. Kiểm thử và backtest
+
+Dự án có các tệp kiểm thử và công cụ kiểm định. Có thể thử chạy:
 
 ```powershell
 .\.venv\Scripts\python.exe selftests.py
 .\.venv\Scripts\python.exe investment_selftests.py
+.\.venv\Scripts\python.exe final_selftests.py
 ```
 
-## Cấu trúc chính
+Chỉ chạy những tệp kiểm thử thực sự có trong phiên bản dự án bạn đang dùng. Ghi lại số lượng kiểm thử thành công/thất bại và thông báo lỗi nếu cần đưa kết quả vào báo cáo.
+
+Các mô-đun backtest/validation có thể được gọi theo giao diện mà mã nguồn định nghĩa. Trước khi công bố kết quả, cần chạy kiểm định thực tế và ghi nhận ít nhất lợi nhuận ròng, số giao dịch, win rate, maximum drawdown và kết quả so sánh với chỉ số tham chiếu. Không suy diễn hiệu quả đầu tư chỉ từ việc mã nguồn có chức năng backtest.
+
+## 9. Cấu trúc thư mục và các mô-đun quan trọng
 
 ```text
-web_app.py                    Điểm khởi chạy website
-dashboard_server.py           HTTP routes và API
-investment_analysis.py        Phân tích và chấm điểm
-stock_service.py               Lấy dữ liệu giá/thị trường
-chart_service.py               Chuẩn bị dữ liệu biểu đồ
-valuation_forecast_service.py  Dự phóng và định giá
-news_service.py                Tin tức doanh nghiệp
-report_pdf.py                  Báo cáo PDF
-requirements.txt               Thư viện Python
-data/valuation_reference.json  Tham chiếu định giá
-templates/                     Giao diện web
-static/                        Tài nguyên giao diện/biểu đồ
+.
+├── bot.py                       # Điểm khởi chạy Telegram bot
+├── web_app.py                   # Điểm khởi chạy website
+├── dashboard_server.py          # HTTP routes/API và điều phối giao diện web
+├── config.py                    # Đọc cấu hình và biến môi trường
+├── conversation.py               # Xử lý ý định/ngữ cảnh hội thoại
+├── llm.py                        # Điều phối câu trả lời AI/Groq và tool calling
+├── groq_service.py               # Thành phần dịch vụ Groq
+├── stock_service.py              # Truy xuất và xử lý dữ liệu cổ phiếu
+├── source_adapter.py              # Lớp thích ứng nguồn dữ liệu
+├── company_info_service.py       # Thông tin doanh nghiệp
+├── investment_analysis.py        # Phân tích/chấm điểm đầu tư trên web
+├── strategy.py                   # Quy tắc chiến lược và tín hiệu giao dịch
+├── chart_service.py               # Chuẩn bị biểu đồ
+├── news_service.py                # Thu thập/xử lý tin tức
+├── valuation_forecast_service.py # Dự phóng và định giá theo cấu hình
+├── backtest.py                    # Mô phỏng chiến lược/danh mục
+├── opportunity_backtest.py       # Kiểm định cơ hội đầu tư
+├── signal_validation.py          # Đánh giá tín hiệu lịch sử
+├── report_pdf_new.py              # Tạo báo cáo PDF
+├── requirements.txt               # Danh sách thư viện Python
+├── .env.example                   # Mẫu biến môi trường (nếu có trong gói)
+├── templates/                     # HTML giao diện
+└── static/                        # Tài nguyên tĩnh/biểu đồ
 ```
+
+Danh sách trên mô tả các mô-đun tiêu biểu; các tệp phụ trợ khác có thể tồn tại trong thư mục dự án.
+
+## 10. Xử lý lỗi thường gặp
+
+- **Không tìm thấy module:** xác nhận terminal đang ở thư mục dự án và cài lại thư viện bằng `pip install -r requirements.txt` trong môi trường `.venv`.
+- **Không kết nối được dữ liệu:** kiểm tra Internet, mã cổ phiếu, quota hoặc tình trạng của nhà cung cấp dữ liệu; thử lại sau nếu dịch vụ tạm thời gián đoạn.
+- **Groq báo thiếu API key hoặc lỗi xác thực:** kiểm tra `GROQ_API_KEY`, tên biến trong `.env`, quyền truy cập và trạng thái quota trên Groq Console.
+- **Telegram bot không phản hồi:** kiểm tra `TELEGRAM_BOT_TOKEN`, bảo đảm tiến trình `bot.py` vẫn đang chạy và kiểm tra log lỗi trong terminal.
+- **Cổng web đã được sử dụng:** thay cổng trong biến cấu hình mà `config.py` hỗ trợ, rồi truy cập đúng địa chỉ/cổng mới.
+- **AI không khả dụng:** một số luồng có thể chuyển sang câu trả lời theo quy tắc; các chức năng phụ thuộc trực tiếp vào API bên ngoài sẽ cần API key hợp lệ và kết nối hoạt động.
+- **Dữ liệu hoặc kết quả thiếu:** kết quả phụ thuộc vào dữ liệu do nguồn cung cấp. Không coi dữ liệu thiếu là giá trị bằng 0 và không sử dụng tín hiệu khi chưa hiểu cảnh báo chất lượng dữ liệu.
+
+## 11. An toàn và giới hạn sử dụng
+
+- Không lưu API key trực tiếp trong mã nguồn.
+- Không chia sẻ `.env`, Telegram token hoặc API key.
+- Máy chủ mặc định bind vào `127.0.0.1`, phù hợp cho chạy cục bộ. Không mở ra Internet công khai nếu chưa thiết lập xác thực, kiểm soát truy cập và biện pháp bảo mật phù hợp.
+- Kết quả phân tích và backtest phụ thuộc vào dữ liệu, giả định mô phỏng và cấu hình. Hiệu quả trong quá khứ không bảo đảm kết quả tương lai.
+- Kiểm tra nguồn dữ liệu, thời điểm công bố báo cáo tài chính, chi phí giao dịch, thanh khoản và các sự kiện doanh nghiệp trước khi diễn giải kết quả.
+
+## 12. Giấy phép và ghi nhận
+
+Kiểm tra các tệp giấy phép/ghi nhận của thư viện bên thứ ba trước khi phân phối lại dự án. Nếu sử dụng mã nguồn này trong báo cáo học thuật, hãy ghi rõ phạm vi chức năng đã triển khai, kết quả kiểm thử thực tế và những phần còn phụ thuộc vào API/dữ liệu bên ngoài.

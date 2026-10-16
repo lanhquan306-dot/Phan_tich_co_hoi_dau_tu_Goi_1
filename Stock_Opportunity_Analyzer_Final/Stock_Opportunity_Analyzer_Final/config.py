@@ -40,7 +40,10 @@ def _csv(name: str, default: str = "") -> list[str]:
 TELEGRAM_BOT_TOKEN = _str("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = _str("GROQ_API_KEY")
 GROQ_MODEL = _str("GROQ_MODEL", "openai/gpt-oss-20b")
-GROQ_TIMEOUT_MS = max(3_000, _int("GROQ_TIMEOUT_MS", 8_000))
+GROQ_MODEL_FAST = _str("GROQ_MODEL_FAST", "openai/gpt-oss-20b")
+GROQ_MODEL_VALUATION = _str("GROQ_MODEL_VALUATION", "openai/gpt-oss-120b")
+GROQ_FALLBACK_MODEL = _str("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b")
+GROQ_TIMEOUT_MS = max(3_000, _int("GROQ_TIMEOUT_MS", 15_000))
 GROQ_RETRY_ATTEMPTS = max(0, _int("GROQ_RETRY_ATTEMPTS", 1))
 
 

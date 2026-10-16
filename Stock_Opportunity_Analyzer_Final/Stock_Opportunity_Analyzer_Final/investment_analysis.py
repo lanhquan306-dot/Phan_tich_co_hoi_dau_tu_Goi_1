@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from math import ceil
 from statistics import median
 import logging
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 import pandas as pd
@@ -40,6 +42,10 @@ log = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 REFERENCE_PATH = BASE_DIR / "data" / "valuation_reference.json"
+
+# Ngưỡng chặn MUA: phiên giảm giá kèm khối lượng ≥ 1,5 lần TB20 (quy ước nhóm, nới lỏng từ 1,2).
+# Điểm khối lượng và ghi chú rủi ro vẫn dùng mốc 1,2 để phản ánh áp lực bán sớm hơn.
+SELLING_PRESSURE_VOL_RATIO = 1.5
 
 FUNDAMENTAL_SHARE = 0.60
 TECHNICAL_SHARE = 0.40
@@ -216,10 +222,23 @@ def _refresh_industry_valuation_reference(symbol: str, industry_code: str, cache
 
     values: dict[str, list[float]] = {"pe": [], "pb": []}
     used_peers = []
-    for peer in peers:
+
+    def load_peer(peer: str):
         try:
             ratio, _, _ = get_ratio_table(peer)
+            return peer, ratio
         except Exception:
+            return peer, None
+
+    # Các peer độc lập nhau. Chạy song song giúp tránh cộng dồn latency của
+    # 5-8 request ratio trong lần đầu mở một ngành, nhưng vẫn giữ nguyên mẫu
+    # peer và cách tính median như trước.
+    workers = min(4, max(1, len(peers)))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="peer-ratio") as pool:
+        peer_rows = list(pool.map(load_peer, peers)) if peers else []
+
+    for peer, ratio in peer_rows:
+        if ratio is None:
             continue
         used_peers.append(peer)
         for key in values:
@@ -446,9 +465,11 @@ def _annual_de(balance: pd.DataFrame, max_years=6) -> dict[int, float]:
 def _financial_history(income: pd.DataFrame, balance: pd.DataFrame, kind: str, max_years=5) -> list[dict[str, Any]]:
     revenue_phrases = REVENUE_FINANCIAL if kind != "regular" else REVENUE_REGULAR
     rev = _annual_values(income, revenue_phrases, max_years=max_years + 1)
-    npat = _annual_values(income, service._NPAT_TOTAL_PHRASES, max_years=max_years + 1)
+    # EPS/P/E tính trên LNST thuộc cổ đông công ty mẹ; chỉ dùng LNST tổng khi
+    # nguồn không có dòng công ty mẹ. Cùng quy ước với tiêu chí tăng trưởng LNST.
+    npat = _annual_values(income, service._NPAT_PARENT_PHRASES, max_years=max_years + 1)
     if not npat:
-        npat = _annual_values(income, service._NPAT_PARENT_PHRASES, max_years=max_years + 1)
+        npat = _annual_values(income, service._NPAT_TOTAL_PHRASES, max_years=max_years + 1)
     eq = _year_end_values(balance, service._EQUITY_PHRASES, max_years=max_years + 1)
     assets = _year_end_values(balance, TOTAL_ASSET_PHRASES, max_years=max_years + 1)
     de = {} if kind != "regular" else _annual_de(balance, max_years=max_years + 1)
@@ -644,7 +665,9 @@ def _technical(frame: pd.DataFrame) -> dict[str, Any]:
     change_pct = to_float(snap.get("change_pct"))
 
     if None not in (close, ma20, ma50):
-        if close > ma20 > ma50 and (rsi is None or rsi >= 45):
+        # Quy ước nhóm: xu hướng tích cực khi MA20 > MA50 và RSI14 > 50.
+        # Không bắt buộc giá > MA20 (mục 4 tài liệu có yêu cầu này; nhóm chủ động nới lỏng).
+        if ma20 > ma50 and (rsi is None or rsi > 50):
             trend = "Tích cực"
         elif close < ma20 < ma50 or (rsi is not None and rsi < 35):
             trend = "Tiêu cực"
@@ -692,6 +715,11 @@ def _technical(frame: pd.DataFrame) -> dict[str, Any]:
             reasons.append("Giá > MA20 > MA50, cấu trúc xu hướng ngắn-trung hạn đang tích cực.")
         elif close < ma20 < ma50:
             reasons.append("Giá < MA20 < MA50, cấu trúc xu hướng đang yếu.")
+        elif ma20 > ma50:
+            reasons.append(
+                "MA20 > MA50, xu hướng trung hạn đang tăng; giá đang dưới MA20 nên cần theo dõi "
+                "nhịp điều chỉnh ngắn hạn (quy ước nhóm không bắt buộc giá > MA20)."
+            )
         else:
             reasons.append("Giá và MA20/MA50 chưa đồng thuận, xu hướng chưa rõ ràng.")
     if rsi is not None:
@@ -914,7 +942,13 @@ def _signal_from_score(score: dict, fund: dict, tech: dict) -> dict[str, Any]:
             "severe_risks": severe,
         }
 
-    if total >= 70 and tech.get("trend") == "Tích cực" and not severe and (fs is None or fs >= 60):
+    if (
+        total >= 70
+        and tech.get("trend") == "Tích cực"
+        and not _selling_pressure(tech)
+        and not severe
+        and (fs is None or fs >= 60)
+    ):
         return {
             "code": "BUY", "label": "MUA", "tone": "positive",
             "reason": "Điểm tổng hợp đạt từ 70, nền tảng cơ bản đủ mạnh, kỹ thuật xác nhận xu hướng tích cực và không có cảnh báo nghiêm trọng.",
@@ -928,11 +962,72 @@ def _signal_from_score(score: dict, fund: dict, tech: dict) -> dict[str, Any]:
             "severe_risks": severe,
         }
 
+    checks = _buy_checks(total, fs, tech, severe)
+    unmet = [c["detail"] for c in checks if not c["passed"]]
+    if total >= 70:
+        reason = (
+            f"Điểm tổng hợp {total:.1f} đã đạt ngưỡng 70 nhưng chưa đủ điều kiện MUA: "
+            + "; ".join(unmet) + "."
+        )
+    else:
+        reason = (
+            f"Điểm tổng hợp {total:.1f} nằm trong vùng 40–70; "
+            "các tín hiệu chưa đồng thuận đủ mạnh để mua mới hoặc bán ra, ưu tiên theo dõi thêm."
+        )
     return {
         "code": "HOLD", "label": "GIỮ / CHỜ XÁC NHẬN", "tone": "warning",
-        "reason": "Các tín hiệu chưa đồng thuận đủ mạnh để mua mới hoặc bán ra; ưu tiên theo dõi thêm.",
+        "reason": reason,
+        "buy_checks": checks,
         "severe_risks": severe,
     }
+
+
+def _fmt_vnd(x: float | None) -> str:
+    return "N/A" if x is None else f"{x:,.0f}".replace(",", ".")
+
+
+def _trend_gaps(tech: dict) -> list[str]:
+    """Lý do cụ thể khiến xu hướng kỹ thuật chưa được xác nhận là Tích cực."""
+    close, ma20, ma50, rsi = (to_float(tech.get(k)) for k in ("close", "ma20", "ma50", "rsi14"))
+    if None in (close, ma20, ma50):
+        return ["thiếu dữ liệu giá/MA20/MA50 để xác nhận xu hướng"]
+    gaps = []
+    if not ma20 > ma50:
+        gaps.append(f"MA20 {_fmt_vnd(ma20)} chưa nằm trên MA50 {_fmt_vnd(ma50)}")
+    if rsi is not None and rsi <= 50:
+        gaps.append(f"RSI14 {rsi:.1f} chưa trên 50")
+    return gaps
+
+
+def _selling_pressure(tech: dict) -> bool:
+    """Mục 4: giá giảm kèm áp lực bán gia tăng là tiêu cực; nhóm chặn MUA khi KL ≥ 1,5 lần TB20."""
+    change = to_float(tech.get("change_pct"))
+    vol_ratio = to_float(tech.get("vol_ratio"))
+    return change is not None and vol_ratio is not None and change < 0 and vol_ratio >= SELLING_PRESSURE_VOL_RATIO
+
+
+def _buy_checks(total: float, fs: float | None, tech: dict, severe: list[str]) -> list[dict[str, Any]]:
+    """Từng điều kiện MUA theo tài liệu quy tắc (mục 5 và 5.1) và trạng thái đạt/chưa đạt."""
+    trend = tech.get("trend")
+    gaps = _trend_gaps(tech) if trend != "Tích cực" else []
+    return [
+        {"condition": "Điểm tổng hợp S ≥ 70", "passed": total >= 70,
+         "detail": f"điểm tổng hợp {total:.1f} dưới 70"},
+        {"condition": "Kỹ thuật xác nhận xu hướng (MA20 > MA50, RSI14 > 50)",
+         "passed": trend == "Tích cực",
+         "detail": f"xu hướng kỹ thuật đang {str(trend or 'chưa rõ').lower()}, chưa xác nhận"
+                   + (f" ({', '.join(gaps)})" if gaps else "")},
+        {"condition": "Giá và khối lượng không tiêu cực (không giảm giá kèm KL ≥ 1,5× TB20)",
+         "passed": not _selling_pressure(tech),
+         "detail": (
+             f"phiên gần nhất giảm {abs(to_float(tech.get('change_pct')) or 0):.2f}% với khối lượng "
+             f"{to_float(tech.get('vol_ratio')) or 0:.2f} lần trung bình 20 phiên"
+         )},
+        {"condition": "Không có cảnh báo nghiêm trọng", "passed": not severe,
+         "detail": "có cảnh báo nghiêm trọng: " + " ".join(severe)},
+        {"condition": "Nền tảng cơ bản đủ mạnh (F ≥ 60)", "passed": fs is None or fs >= 60,
+         "detail": f"điểm cơ bản {fs if fs is not None else 0:.1f} dưới 60"},
+    ]
 
 
 def _risk_level(score: dict, fund: dict, tech: dict, severe: list[str]) -> str:
@@ -1002,8 +1097,14 @@ def _methodology(kind: str) -> dict[str, Any]:
         "formula": "S = 0.6 × F + 0.4 × T",
         "fundamental_weight": 60,
         "technical_weight": 40,
-        "buy_rule": "S ≥ 70, kỹ thuật tích cực, điểm cơ bản đủ mạnh, không có cảnh báo nghiêm trọng và dữ liệu đủ phủ.",
-        "hold_rule": "40 ≤ S < 70 hoặc các tín hiệu cơ bản/kỹ thuật chưa đồng thuận.",
+        "buy_rule": (
+            "S ≥ 70, kỹ thuật xác nhận xu hướng (MA20 > MA50, RSI14 > 50; không bắt buộc giá > MA20), không có phiên giảm "
+            "kèm khối lượng ≥ 1,5 lần TB20, điểm cơ bản F ≥ 60, không có cảnh báo nghiêm trọng và dữ liệu đủ phủ."
+        ),
+        "hold_rule": (
+            "40 ≤ S < 70 hoặc các tín hiệu cơ bản/kỹ thuật chưa đồng thuận. Kỹ thuật trung tính được xem là "
+            "chưa xác nhận xu hướng, nên S ≥ 70 vẫn là HOLD (quy ước nhóm cho trường hợp mục 5.1 chưa nêu)."
+        ),
         "sell_rule": "S < 40 và nền tảng cơ bản hoặc kỹ thuật suy yếu rõ rệt.",
         "missing_rule": "Nếu độ phủ dữ liệu dưới ngưỡng tối thiểu, hệ thống hiển thị KHÔNG ĐỦ DỮ LIỆU thay vì gán BUY/HOLD/SELL.",
         "industry_rule": "Không dùng D/E để chấm ngân hàng, chứng khoán và bảo hiểm; trọng số được chuyển sang ROE, ROA và định giá." if kind != "regular" else "D/E chỉ dùng cho doanh nghiệp phi tài chính.",
@@ -1012,6 +1113,7 @@ def _methodology(kind: str) -> dict[str, Any]:
 
 
 def analyze_investment(symbol: str) -> dict:
+    started_at = perf_counter()
     s = symbol.upper().strip()
     resolution = service.resolve_symbol(s)
     if resolution.get("status") == "suggest":
@@ -1021,79 +1123,120 @@ def analyze_investment(symbol: str) -> dict:
 
     notes: list[str] = []
     profile: dict[str, Any] = {}
-    try:
-        profile, _, stale_profile = company_info_service.get_company_info(s)
-        if stale_profile:
-            notes.append("Thông tin doanh nghiệp đang dùng cache cũ.")
-    except Exception as exc:
-        notes.append(f"Không tải được thông tin doanh nghiệp: {type(exc).__name__}")
-
-    frame, info = charts.build_chart_frame(s)
-    tech = _technical(frame)
-    profile = company_info_service.add_market_cap(profile, tech.get("close"))
-    fund, fund_notes = _fundamental_analysis(s, tech.get("close"), profile)
-    notes.extend(fund_notes)
-
-    # Nạp tin tức chuẩn trực tiếp
     news: list[dict[str, str]] = []
     news_stale = False
-    try:
-        news, _, news_stale = news_service.get_company_news(s, limit=5)
-        if news_stale:
-            notes.append("Tin tức đang dùng cache cũ do nguồn tạm lỗi.")
-    except Exception as exc:
-        notes.append(f"Không tải được tin tức doanh nghiệp: {type(exc).__name__}")
 
-    annual_report = annual_report_service.catalog_lookup(s)
+    # Những nguồn dưới đây độc lập nhau. Bản cũ chạy tuần tự nên latency bị
+    # cộng dồn. Chạy song song giữ nguyên dữ liệu/tính năng nhưng tổng thời gian
+    # gần với nhánh chậm nhất thay vì tổng của mọi nhánh.
+    with ThreadPoolExecutor(max_workers=6, thread_name_prefix="stock-analysis") as pool:
+        profile_future = pool.submit(company_info_service.get_company_info, s)
+        chart_future = pool.submit(charts.build_chart_frame, s)
+        news_future = pool.submit(news_service.get_company_news, s, 5)
+        annual_future = pool.submit(annual_report_service.catalog_lookup, s)
 
-    score = _score_all(fund, tech)
-    signal = _signal_from_score(score, fund, tech)
-    strengths, weaknesses, risks, missing = _explain(fund, tech, score, signal)
-    risk_level = _risk_level(score, fund, tech, signal.get("severe_risks") or [])
+        # Warm-up hai cache BCTC/ratio ngay từ đầu. _fundamental_analysis vẫn
+        # gọi API public như cũ; stock_service.cached_call single-flight sẽ
+        # dùng chung request đang chạy thay vì tạo request thứ hai.
+        pool.submit(service.get_fundamental_tables, s)
+        pool.submit(get_ratio_table, s)
 
-    f_score = score["fundamental"]["score"]
-    t_score = score["technical"]["score"]
-    assessment = (
-        f"{s}: tín hiệu {signal['label']}. Điểm tổng hợp "
-        f"{score['score'] if score['score'] is not None else 'N/A'}/100 "
-        f"(cơ bản {f_score if f_score is not None else 'N/A'}/100; kỹ thuật {t_score if t_score is not None else 'N/A'}/100)."
-    )
+        try:
+            profile, _, stale_profile = profile_future.result()
+            if stale_profile:
+                notes.append("Thông tin doanh nghiệp đang dùng cache cũ.")
+        except Exception as exc:
+            notes.append(f"Không tải được thông tin doanh nghiệp: {type(exc).__name__}")
 
-    auto_industry = ""
-    try:
-        auto_industry = company_info_service.get_industry_by_symbol(s)
-    except Exception:
-        pass
+        # Giá/technical là đầu vào bắt buộc; giữ nguyên hành vi lỗi của bản cũ.
+        frame, info = chart_future.result()
+        tech = _technical(frame)
+        profile = company_info_service.add_market_cap(profile, tech.get("close"))
+        fund, fund_notes = _fundamental_analysis(s, tech.get("close"), profile)
+        notes.extend(fund_notes)
 
-    industry = (
-        auto_industry
-        or profile.get("industry")
-        or company_type_label(fund["company_type"])
-    )
-    profile["industry"] = industry
+        score = _score_all(fund, tech)
+        signal = _signal_from_score(score, fund, tech)
+        strengths, weaknesses, risks, missing = _explain(fund, tech, score, signal)
+        risk_level = _risk_level(score, fund, tech, signal.get("severe_risks") or [])
 
-    company_name = profile.get("company_name") or info.get("name", "")
-    exchange = profile.get("exchange") or info.get("exchange", "")
-    generated_at = info.get("generated_at") or datetime.now().strftime("%H:%M %d/%m/%Y")
+        f_score = score["fundamental"]["score"]
+        t_score = score["technical"]["score"]
+        assessment = (
+            f"{s}: tín hiệu {signal['label']}. Điểm tổng hợp "
+            f"{score['score'] if score['score'] is not None else 'N/A'}/100 "
+            f"(cơ bản {f_score if f_score is not None else 'N/A'}/100; kỹ thuật {t_score if t_score is not None else 'N/A'}/100)."
+        )
+
+        auto_industry = ""
+        industry_getter = getattr(company_info_service, "get_industry_by_symbol", None)
+        if callable(industry_getter):
+            try:
+                auto_industry = industry_getter(s)
+            except Exception:
+                pass
+
+        industry = (
+            auto_industry
+            or profile.get("industry")
+            or company_type_label(fund["company_type"])
+        )
+        profile["industry"] = industry
+
+        company_name = profile.get("company_name") or info.get("name", "")
+        exchange = profile.get("exchange") or info.get("exchange", "")
+        generated_at = info.get("generated_at") or datetime.now().strftime("%H:%M %d/%m/%Y")
 
     # =========================================================================
-    # ĐỊNH GIÁ KỊCH BẢN ĐỘC LẬP VỚI TÍN HIỆU L2
+    # ĐỊNH GIÁ CHUYÊN SÂU: CHỈ CHẠY KHI TÍN HIỆU L2 LÀ BUY (service tự trả SKIPPED)
     # =========================================================================
-    signal_code = str((signal or {}).get("code") or "").upper()
-    try:
-        deep_valuation_data = ValuationForecastService.execute(
+
+        signal_code = str((signal or {}).get("code") or "").strip().upper()
+
+        # Định giá AI chạy song song với phần tin tức đang xử lý. Hai nhánh
+        # không phụ thuộc nhau nên không có lý do để bắt người dùng chờ nối đuôi.
+        valuation_future = pool.submit(
+            ValuationForecastService.execute,
             symbol=s,
             fundamental_data=fund,
             technical_data=tech,
-            company_info=profile
+            company_info=profile,
+            initial_signal=signal_code,
         )
-    except Exception as exc:
-        log.exception("Independent valuation failed for %s", s)
-        notes.append(f"Không thể hoàn thành định giá chuyên sâu: {type(exc).__name__}")
-        deep_valuation_data = {
-            "status": "VALUATION_FAILED",
-            "message": "Đã xảy ra lỗi khi tính định giá. Kiểm tra nhật ký máy chủ để biết chi tiết.",
-        }
+
+        try:
+            news, _, news_stale = news_future.result()
+            if news_stale:
+                notes.append("Tin tức đang dùng cache cũ do nguồn tạm lỗi.")
+        except Exception as exc:
+            notes.append(f"Không tải được tin tức doanh nghiệp: {type(exc).__name__}")
+
+        try:
+            annual_report = annual_future.result()
+        except Exception as exc:
+            annual_report = {
+                "symbol": s,
+                "used": False,
+                "source_name": "vn-annual-report-miner (Tumiqa)",
+                "note": f"Không truy vấn được nguồn BCTN: {type(exc).__name__}.",
+            }
+
+        try:
+            deep_valuation_data = valuation_future.result()
+        except Exception as exc:
+            log.exception("Independent valuation failed for %s", s)
+            notes.append(
+                f"Không thể hoàn thành định giá chuyên sâu: {type(exc).__name__}"
+            )
+            deep_valuation_data = {
+                "status": "VALUATION_FAILED",
+                "symbol": s,
+                "message": (
+                    "Đã xảy ra lỗi khi tính định giá. "
+                    "Kiểm tra nhật ký máy chủ."
+                ),
+            }
+
 
     # Cập nhật nhận xét 3 nhóm kinh tế chuyên sâu có bổ sung giá mục tiêu nếu có
     fund["comments"] = _economic_comments(
@@ -1151,7 +1294,7 @@ def analyze_investment(symbol: str) -> dict:
         },
         {
             "data": "Tin tức doanh nghiệp",
-            "source": "VNStock Reference (nguồn gốc từng tin được giữ riêng khi có)",
+            "source": "CafeF/Vietstock RSS; Google News RSS khi cần fallback",
             "period": news[0].get("publish_time") if news else "Chưa có dữ liệu",
             "retrieved_at": generated_at,
             "note": "Tin tức chỉ dùng làm bối cảnh/kiểm chứng, chưa đưa trực tiếp vào điểm BUY/HOLD/SELL.",
@@ -1205,4 +1348,5 @@ def analyze_investment(symbol: str) -> dict:
             "missing_data": missing, "notes": notes,
         },
     }
+    log.info("analysis %s completed in %.2fs", s, perf_counter() - started_at)
     return result

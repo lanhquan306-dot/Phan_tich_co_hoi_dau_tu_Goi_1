@@ -5,7 +5,7 @@ In ra: key hợp lệ không, model trong .env có tồn tại không, gọi th�
 from __future__ import annotations
 
 import llm
-from config import GROQ_MODEL
+from config import GROQ_MODEL, GROQ_MODEL_FAST, GROQ_MODEL_VALUATION
 
 
 def main() -> None:
@@ -15,8 +15,9 @@ def main() -> None:
     try:
         available = {m.id for m in client.models.list().data}
         print("API key: OK")
-        print(f"Model trong .env: {GROQ_MODEL} -> {'CÓ' if GROQ_MODEL in available else 'KHÔNG CÓ'}")
-        if GROQ_MODEL not in available:
+        for label, model in (("Chat", GROQ_MODEL), ("Fast/news", GROQ_MODEL_FAST), ("Valuation", GROQ_MODEL_VALUATION)):
+            print(f"{label}: {model} -> {'CÓ' if model in available else 'KHÔNG CÓ'}")
+        if not all(m in available for m in (GROQ_MODEL, GROQ_MODEL_FAST, GROQ_MODEL_VALUATION)):
             print("Một số model đang khả dụng:")
             for model_id in sorted(available)[:20]:
                 print(" -", model_id)

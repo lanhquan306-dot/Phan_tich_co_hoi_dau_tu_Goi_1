@@ -7,7 +7,7 @@ GET  /analysis/<SYMBOL>   full analysis dashboard
 GET  /chart/<SYMBOL>?p=6M legacy interactive technical chart
 GET  /report/<SYMBOL>.pdf on-demand PDF report
 GET  /api/analysis/<SYMBOL> JSON result for integrations (TV1/TV4)
-GET  /api/backtest/<SYMBOL>?years=3 historical rule validation
+GET  /api/backtest/<SYMBOL>?months=12 historical rule validation, 1 năm (years=1 legacy)
 GET  /api/validate?symbols=FPT,VCB,... multi-symbol QA table
 GET  /api/collect?symbols=FPT,VCB,... independent multi-symbol raw collector
 POST /api/chat             small right-side chatbot grounded in selected result
@@ -47,6 +47,11 @@ SYMBOL_RE = re.compile(r"^[A-Z0-9]{2,10}$")
 PAGE_CACHE_SECONDS = 60
 _page_cache: dict[tuple[str, str], tuple[float, str]] = {}
 _analysis_cache: dict[str, tuple[float, dict]] = {}
+_analysis_inflight: dict[str, threading.Event] = {}
+_pdf_cache: dict[str, tuple[float, bytes]] = {}
+_pdf_inflight: dict[str, threading.Event] = {}
+PDF_CACHE_SECONDS = 300
+REPORT_ANALYSIS_REUSE_SECONDS = 900
 _cache_lock = threading.Lock()
 
 
@@ -60,14 +65,90 @@ def _analysis(symbol: str) -> dict:
         hit = _analysis_cache.get(symbol)
         if hit and now - hit[0] <= PAGE_CACHE_SECONDS:
             return hit[1]
-    result = investment.analyze_investment(symbol)
+        event = _analysis_inflight.get(symbol)
+        if event is None:
+            event = threading.Event()
+            _analysis_inflight[symbol] = event
+            owner = True
+        else:
+            owner = False
+
+    # Nếu browser/API/PDF cùng hỏi một mã đúng lúc phân tích đang chạy, dùng
+    # chung kết quả thay vì khởi động thêm một pipeline VNStock + Groq nữa.
+    if not owner:
+        event.wait()
+        with _cache_lock:
+            hit = _analysis_cache.get(symbol)
+            if hit and time.time() - hit[0] <= PAGE_CACHE_SECONDS:
+                return hit[1]
+
+    try:
+        result = investment.analyze_investment(symbol)
+    except Exception:
+        if owner:
+            with _cache_lock:
+                _analysis_inflight.pop(symbol, None)
+                event.set()
+        raise
+
+    completed_at = time.time()
     with _cache_lock:
-        _analysis_cache[symbol] = (now, result)
+        # TTL phải tính từ lúc pipeline hoàn tất, không phải lúc bắt đầu.
+        # Nếu một lượt phân tích mất >60s, cách cũ khiến cache vừa tạo đã hết hạn.
+        _analysis_cache[symbol] = (completed_at, result)
         for key, (ts, _) in list(_analysis_cache.items()):
-            if now - ts > PAGE_CACHE_SECONDS:
+            if completed_at - ts > PAGE_CACHE_SECONDS:
                 _analysis_cache.pop(key, None)
+        if owner:
+            _analysis_inflight.pop(symbol, None)
+            event.set()
     return result
 
+
+
+def _analysis_for_report(symbol: str) -> dict:
+    """PDF phải dùng đúng snapshot dashboard gần nhất thay vì chạy lại pipeline AI.
+
+    Dashboard vẫn có TTL ngắn 60s để người dùng chủ động refresh dữ liệu; riêng
+    export được phép reuse snapshot 15 phút để báo cáo khớp màn hình và xuất nhanh.
+    """
+    now=time.time()
+    with _cache_lock:
+        hit=_analysis_cache.get(symbol)
+        if hit and now-hit[0] <= REPORT_ANALYSIS_REUSE_SECONDS:
+            return hit[1]
+    return _analysis(symbol)
+
+
+def _report_pdf(symbol: str) -> bytes:
+    now=time.time()
+    with _cache_lock:
+        hit=_pdf_cache.get(symbol)
+        if hit and now-hit[0] <= PDF_CACHE_SECONDS:
+            return hit[1]
+        event=_pdf_inflight.get(symbol)
+        if event is None:
+            event=threading.Event(); _pdf_inflight[symbol]=event; owner=True
+        else:
+            owner=False
+    if not owner:
+        event.wait()
+        with _cache_lock:
+            hit=_pdf_cache.get(symbol)
+            if hit:
+                return hit[1]
+    try:
+        started=time.perf_counter()
+        data=report_pdf.build_report_pdf(_analysis_for_report(symbol), include_chart=True)
+        elapsed=time.perf_counter()-started
+        log.info("PDF %s built in %.2fs (%d bytes)", symbol, elapsed, len(data))
+        with _cache_lock:
+            _pdf_cache[symbol]=(time.time(),data)
+        return data
+    finally:
+        if owner:
+            with _cache_lock:
+                _pdf_inflight.pop(symbol,None); event.set()
 
 def message_page(title: str, message: str, suggestions: list[str] | None = None, detail: str = "") -> str:
     links = ""
@@ -134,19 +215,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.end_headers()
 
+    def _write_response(self, status: int, data: bytes, content_type: str, filename: str | None = None):
+        try:
+            self._headers(status, content_type, len(data), filename=filename)
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            # Trình duyệt có thể refresh/đóng tab trong lúc request dài đang chạy.
+            # Đây không phải lỗi nghiệp vụ; bỏ qua để tránh traceback giả trong console.
+            log.debug("Client disconnected before response was sent")
+
     def _send(self, status: int, body: str, content_type: str = "text/html; charset=utf-8"):
         data = body.encode("utf-8")
-        self._headers(status, content_type, len(data))
-        self.wfile.write(data)
+        self._write_response(status, data, content_type)
 
     def _send_json(self, status: int, payload: dict):
         data = _safe_json(payload).encode("utf-8")
-        self._headers(status, "application/json; charset=utf-8", len(data))
-        self.wfile.write(data)
+        self._write_response(status, data, "application/json; charset=utf-8")
 
     def _send_bytes(self, status: int, data: bytes, content_type: str, filename: str | None = None):
-        self._headers(status, content_type, len(data), filename=filename)
-        self.wfile.write(data)
+        self._write_response(status, data, content_type, filename=filename)
 
     def do_GET(self):  # noqa: N802
         url = urlparse(self.path)
@@ -185,24 +272,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
             symbol, error = _resolve_symbol_or_error(match.group(1))
             if error:
                 return self._send_json(error[0], {"error": "invalid_symbol"})
-            raw_years = parse_qs(url.query).get("years", ["3"])[0]
+            query = parse_qs(url.query)
+            raw_months = query.get("months", [None])[0]
+            raw_years = query.get("years", [None])[0]
             try:
-                years = int(raw_years)
-            except (TypeError, ValueError):
+                if raw_months is not None:
+                    opportunity_backtest._settings_for_period(months=raw_months)
+                    kwargs = {"months": int(float(raw_months))}
+                else:
+                    raw_years = raw_years if raw_years is not None else "1"
+                    opportunity_backtest._settings_for_period(years=raw_years)
+                    kwargs = {"years": int(float(raw_years))}
+            except ValueError:
                 return self._send_json(400, {
+                    "status": "FAILED",
                     "error": "invalid_period",
-                    "message": "Chỉ hỗ trợ backtest 1 năm hoặc 3 năm.",
-                })
-            if years not in opportunity_backtest.SUPPORTED_BACKTEST_YEARS:
-                return self._send_json(400, {
-                    "error": "invalid_period",
-                    "message": "Chỉ hỗ trợ backtest 1 năm hoặc 3 năm.",
+                    "message": opportunity_backtest.PERIOD_ERROR,
                 })
             try:
-                return self._send_json(200, opportunity_backtest.run_backtest(symbol, years=years))
+                return self._send_json(200, opportunity_backtest.run_backtest(symbol, **kwargs))
+            except service.DataUnavailable as exc:
+                return self._send_json(422, {"status": "INSUFFICIENT_DATA", "error": "insufficient_data", "message": str(exc)[:280]})
             except Exception as exc:
                 log.exception("backtest %s", symbol)
-                return self._send_json(500, {"error": type(exc).__name__, "message": str(exc)[:280]})
+                return self._send_json(500, {"status": "FAILED", "error": type(exc).__name__, "message": str(exc)[:280]})
 
         match = re.fullmatch(r"/api/peers/([^/]+)", path)
         if match:
@@ -246,7 +339,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if error:
                 return self._send(*error)
             try:
-                pdf = report_pdf.build_report_pdf(_analysis(symbol), include_chart=True)
+                pdf = _report_pdf(symbol)
                 return self._send_bytes(200, pdf, "application/pdf", f"{symbol}_investment_analysis.pdf")
             except Exception as exc:
                 log.exception("report %s", symbol)

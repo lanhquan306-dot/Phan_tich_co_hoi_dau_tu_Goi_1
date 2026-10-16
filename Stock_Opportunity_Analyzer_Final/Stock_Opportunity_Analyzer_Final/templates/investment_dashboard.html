@@ -1306,6 +1306,7 @@
       <div style="margin-top:13px" class="tiny muted">Độ phủ dữ liệu: ${Number(s.coverage_pct || 0).toFixed(1)}%</div>
       <div class="bar"><i style="width:${Math.min(100, Number(s.coverage_pct || 0))}%"></i></div>
       <div class="comment" style="margin-top:13px">${esc(sg.reason)}</div>
+      ${Array.isArray(sg.buy_checks) ? `<ul class="muted tiny" style="margin:8px 0 0;padding-left:18px">${sg.buy_checks.map(c => `<li class="${c.passed ? "up" : "down"}">${c.passed ? "Đạt" : "Chưa đạt"}: ${esc(c.condition)}</li>`).join("")}</ul>` : ""}
     </div>
   </section>
 
@@ -1420,20 +1421,20 @@
         </div>
       </section>
 
-      <!-- 3. ĐỊNH GIÁ KỊCH BẢN ĐỘC LẬP -->
+      <!-- 3. ĐỊNH GIÁ CHUYÊN SÂU: CHỈ CHẠY KHI TÍN HIỆU L2 LÀ MUA -->
       <section class="card section span12" id="deep-valuation" style="${D.deep_valuation && D.deep_valuation.status === 'COMPLETED' ? 'border: 1px solid var(--green); background: rgba(47, 209, 155, 0.03);' : ''}">
-        <h2>3. Định giá độc lập · Dự phóng 3 kịch bản</h2>
+        <h2>3. Định giá chuyên sâu · Dự phóng 3 kịch bản</h2>
         ${D.deep_valuation && D.deep_valuation.status === "COMPLETED" ? `
           <p class="muted tiny">${esc(D.deep_valuation.model_note)}</p>
           <div class="profile-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-top:12px">
-            <div class="profile-item"><small>Tín hiệu định giá độc lập</small><b class="${D.deep_valuation.final_signal.includes('BUY') ? 'up' : D.deep_valuation.final_signal.includes('SELL') ? 'down' : 'warn'}" style="display:block;margin:5px 0">${esc(D.deep_valuation.final_signal)}</b><span class="muted tiny">${esc(D.deep_valuation.action_note)}</span></div>
-            <div class="profile-item"><small>Tín hiệu L2 (riêng biệt)</small><b class="${signalClass(D.signal.code)}" style="display:block;margin:5px 0">${esc(D.signal.label)}</b><span class="muted tiny">Không tham gia phép tính và không bị tín hiệu định giá thay đổi.</span></div>
+            <div class="profile-item"><small>Tín hiệu định giá (tham khảo)</small><b class="${D.deep_valuation.final_signal.includes('BUY') ? 'up' : D.deep_valuation.final_signal.includes('SELL') ? 'down' : 'warn'}" style="display:block;margin:5px 0">${esc(D.deep_valuation.final_signal)}</b><span class="muted tiny">${esc(D.deep_valuation.action_note)}</span></div>
+            <div class="profile-item"><small>Tín hiệu L2 (điều kiện chạy)</small><b class="${signalClass(D.signal.code)}" style="display:block;margin:5px 0">${esc(D.signal.label)}</b><span class="muted tiny">Định giá chỉ chạy khi tín hiệu này là MUA; tín hiệu định giá không ghi đè nó.</span></div>
             <div class="profile-item"><small>Ngành / ngưỡng upside tối thiểu</small><b style="display:block;margin:5px 0">${esc(D.deep_valuation.industry_type)} · ${Number(D.deep_valuation.industry_minimum_upside_pct).toFixed(0)}%</b><span class="muted tiny">Upside cơ sở: ${Number(D.deep_valuation.base_upside_pct).toFixed(1)}%</span></div>
           </div>
           <h3>So sánh 3 kịch bản · giá mục tiêu cuối năm 3</h3>
           <div class="table-wrap">
             <table class="table">
-              <thead><tr><th>Kịch bản</th><th>Phương pháp</th><th>Giá mục tiêu</th><th>Upside lũy kế</th><th>CAGR/năm</th><th>Giả định Gemini</th></tr></thead>
+              <thead><tr><th>Kịch bản</th><th>Phương pháp</th><th>Giá mục tiêu</th><th>Upside lũy kế</th><th>CAGR/năm</th><th>Giả định Groq</th></tr></thead>
               <tbody>
                 ${Object.values(D.deep_valuation.scenarios).map(scenario => `
                   <tr>
@@ -1466,12 +1467,18 @@
           </div>
           <div class="comment" style="margin-top:12px"><b>Giả định chung:</b> ${esc(D.deep_valuation.assumptions)}</div>
           <div class="comment"><b>Giới hạn:</b> ${esc(D.deep_valuation.limitations)}</div>
+          ${(D.deep_valuation.warnings || []).map(w => `<div class="comment warn"><b>Lưu ý:</b> ${esc(w)}</div>`).join("")}
+        ` : D.deep_valuation && D.deep_valuation.status === "SKIPPED" ? `
+          <div class="notice">
+            <b>Không chạy định giá chuyên sâu:</b> ${esc(D.deep_valuation.message)}
+          </div>
+          <p class="muted tiny" style="margin-top:10px">Theo quy tắc Gói 1, mục định giá 3 kịch bản chỉ được tính khi tín hiệu vòng 1/L2 là MUA.</p>
         ` : `
           <div class="notice">
             <b>Chưa thể hoàn tất định giá:</b> ${esc(D.deep_valuation && D.deep_valuation.message || "Không nhận được kết quả định giá.")}
-            ${D.deep_valuation && D.deep_valuation.status === "AI_UNAVAILABLE" ? `<div style="margin-top:6px">Thêm GEMINI_API_KEY vào file .env rồi khởi động lại ứng dụng để bật tạo kịch bản.</div>` : ""}
+            ${D.deep_valuation && D.deep_valuation.status === "AI_UNAVAILABLE" ? `<div style="margin-top:6px">Thêm GROQ_API_KEY vào file .env rồi khởi động lại ứng dụng để bật tạo kịch bản.</div>` : ""}
           </div>
-          <p class="muted tiny" style="margin-top:10px">Định giá độc lập với tín hiệu L2. Giá mục tiêu chỉ được tính khi có đủ dữ liệu và giả định kịch bản hợp lệ.</p>
+          <p class="muted tiny" style="margin-top:10px">Định giá chỉ chạy khi tín hiệu L2 là MUA. Giá mục tiêu chỉ được tính khi có đủ dữ liệu và giả định kịch bản hợp lệ.</p>
         `}
       </section>
 
@@ -1521,16 +1528,12 @@
         <h2>Backtest chiến lược đầu tư</h2>
        
 <p class="muted tiny">
-  Kiểm định chiến lược đầu tư trong 1 năm.
-  Tín hiệu cuối phiên, giao dịch ở phiên kế tiếp;
-  mô phỏng vốn 100 triệu VNĐ, lô 100 cổ phiếu,
-  phí/thuế/trượt giá và giới hạn BCTC theo ngày công bố
-  để giảm look-ahead bias.
+  Kiểm định chiến lược trong 1 năm. Tín hiệu tính sau mỗi phiên, khớp ở giá mở cửa phiên kế tiếp;
+  vốn 100 triệu VNĐ, lô 100 cổ phiếu, phí/thuế/trượt giá và giới hạn BCTC theo ngày công bố
+  để tránh look-ahead bias. So sánh với Buy &amp; Hold và VN-Index.
 </p>
 <div class="actions">
-  <button class="btn btn-bt primary" data-y="1">
-    Backtest 1 năm
-  </button>
+  <button class="btn btn-bt primary" data-m="12">Backtest 1 năm</button>
 </div>
         <div id="backtestResult" class="backtest-box" style="margin-top:12px"><span class="muted">Chưa chạy backtest.</span></div>
       </section>
@@ -1607,9 +1610,9 @@
 
         <h3 style="margin-top: 24px;">Nguyên tắc phân bổ & Ra quyết định</h3>
         <ul class="method-list">
-          <li><b>Quy tắc tín hiệu MUA (BUY):</b> Điểm tổng hợp S ≥ 70, cấu trúc kỹ thuật Tích cực (Giá > MA20 > MA50), điểm cơ bản F ≥ 60, không vi phạm các cảnh báo rủi ro nghiêm trọng và độ phủ dữ liệu ≥ 65%.</li>
+          <li><b>Quy tắc tín hiệu MUA (BUY):</b> Điểm tổng hợp S ≥ 70, kỹ thuật xác nhận xu hướng (MA20 > MA50 và RSI14 > 50; quy ước nhóm không bắt buộc giá > MA20), phiên gần nhất không giảm giá kèm khối lượng ≥ 1,5 lần TB20 (quy ước nhóm), điểm cơ bản F ≥ 60, không vi phạm cảnh báo rủi ro nghiêm trọng và độ phủ dữ liệu ≥ 65%.</li>
           <li><b>Quy tắc BÁN (SELL):</b> Điểm tổng hợp S < 40 kèm theo cơ bản hoặc kỹ thuật suy yếu rõ rệt.</li>
-          <li><b>Quy tắc GIỮ (HOLD):</b> Điểm S nằm trong khoảng 40 – 70 hoặc các tín hiệu cơ bản và kỹ thuật chưa đồng thuận.</li>
+          <li><b>Quy tắc GIỮ (HOLD):</b> Điểm S nằm trong khoảng 40 – 70 hoặc các tín hiệu cơ bản và kỹ thuật chưa đồng thuận. Kỹ thuật trung tính được xem là chưa xác nhận xu hướng, nên S ≥ 70 vẫn là GIỮ (quy ước nhóm cho trường hợp mục 5.1 chưa nêu).</li>
           <li><b>Đặc thù nhóm ngành tài chính:</b> Ngân hàng, Chứng khoán, Bảo hiểm không áp dụng tiêu chí D/E; 7 điểm trọng số của D/E được tự động tái phân bổ vào nhóm Sinh lời và Định giá.</li>
         </ul>
       </section>
@@ -1748,56 +1751,86 @@
 
     function setupBacktest() {
       if (!D || !D.symbol) return;
-      document.querySelectorAll("[data-y]").forEach(b => {
+      document.querySelectorAll("[data-m]").forEach(b => {
         b.onclick = () => {
-          document.querySelectorAll("[data-y]").forEach(btn => btn.classList.remove("primary"));
+          document.querySelectorAll("[data-m]").forEach(btn => btn.classList.remove("primary"));
           b.classList.add("primary");
-          runBacktest(Number(b.dataset.y));
+          runBacktest(Number(b.dataset.m));
         };
       });
     }
 
-    async function runBacktest(years) {
+    async function runBacktest(months) {
       const box = $("backtestResult");
       if (!box) return;
-      if (![1, 3].includes(Number(years))) {
-        box.innerHTML = `<span class="down">Chỉ hỗ trợ backtest 1 năm hoặc 3 năm.</span>`;
+      if (Number(months) !== 12) {
+        box.innerHTML = `<span class="down">Chỉ hỗ trợ backtest 1 năm.</span>`;
         return;
       }
-      box.innerHTML = `<span class="muted">Đang chạy backtest ${years} năm...</span>`;
+      const label = "1 năm";
+      box.innerHTML = `<span class="muted">Đang chạy backtest ${label}...</span>`;
       try {
-        const r = await fetch(`/api/backtest/${encodeURIComponent(D.symbol)}?years=${years}`);
+        const r = await fetch(`/api/backtest/${encodeURIComponent(D.symbol)}?months=${months}`);
         const j = await r.json();
         if (!r.ok) throw new Error(j.message || j.error || "Backtest lỗi");
+        const fmt = (v, unit) => v === null || v === undefined ? "N/A"
+          : unit === "VND" ? `${money(v)} VNĐ` : unit === "%" ? `${Number(v).toFixed(2)}%` : esc(String(v));
+        const summaryRows = (j.summary || []).map(m => `
+          <tr><td>${esc(m.metric)}</td><td>${fmt(m.stockinsight, m.unit)}</td><td>${fmt(m.buy_hold, m.unit)}</td><td>${fmt(m.vnindex, m.unit)}</td></tr>`).join("");
         const trades = Array.isArray(j.trade_log) ? j.trade_log : [];
         const tradeRows = trades.length ? trades.map(t => `
-      <tr>
-        <td>${esc(t.entry_date || "—")}</td>
-        <td>${money(t.entry_price)} VNĐ</td>
-        <td>${esc(t.exit_date || "—")}</td>
-        <td>${money(t.exit_price)} VNĐ</td>
-        <td class="${tone(t.return_pct)}">${val(t.return_pct, "%")}</td>
-      </tr>`).join("") : `<tr><td colspan="5" class="muted">Chưa có giao dịch hoàn tất trong kỳ.</td></tr>`;
+          <tr><td>${esc(t.entry_date || "—")}</td><td>${money(t.entry_price)} VNĐ</td><td>${esc(t.exit_date || "—")}</td>
+          <td>${money(t.exit_price)} VNĐ</td><td>${t.quantity ?? "—"}</td><td class="${tone(t.return_pct)}">${val(t.return_pct, "%")}</td></tr>`).join("")
+          : `<tr><td colspan="6" class="muted">Chưa có giao dịch hoàn tất trong kỳ.</td></tr>`;
+        const orders = Array.isArray(j.orders) ? j.orders : [];
+        const orderRows = orders.length ? orders.map(o => `
+          <tr><td>${esc(o.signal_date)}</td><td>${esc(o.side)}</td><td>${esc(o.execution_date)}</td><td>${money(o.execution_price)}</td>
+          <td>${o.quantity}</td><td>${money(o.commission)}</td><td>${money(o.sell_tax)}</td><td class="${tone(o.net_cash_flow)}">${money(o.net_cash_flow)}</td><td>${money(o.cash_after)}</td></tr>`).join("")
+          : `<tr><td colspan="9" class="muted">Không có lệnh nào được thực thi.</td></tr>`;
+        const notable = (j.signal_log || []).filter(e => !["NO_ORDER", "NO_ORDER_INSUFFICIENT_DATA"].includes(e.status));
+        const signalRows = notable.length ? notable.map(e => `
+          <tr><td>${esc(e.signal_date)}</td><td>${esc(e.signal)}</td><td>${e.score ?? "N/A"}</td><td>${esc(e.execution_date || "—")}</td><td>${esc(e.status)}</td><td class="muted tiny">${esc(e.reason || "")}</td></tr>`).join("")
+          : `<tr><td colspan="6" class="muted">Không có tín hiệu MUA/BÁN trong kỳ.</td></tr>`;
+        const counts = Object.entries(j.status_counts || {}).map(([k, v]) => `${esc(k)}: ${v}`).join(" · ");
+        const op = j.open_position;
+        const dq = j.data_quality || {};
         box.innerHTML = `
-      <div class="bt-metrics">
-        <div><span class="muted tiny">Lợi suất chiến lược (${years}N)</span><b class="${tone(j.strategy_return_pct)}">${val(j.strategy_return_pct, "%")}</b></div>
-        <div><span class="muted tiny">CAGR</span><b class="${tone(j.cagr_pct)}">${val(j.cagr_pct, "%")}</b></div>
-        <div><span class="muted tiny">Buy & Hold (${years}N)</span><b class="${tone(j.buy_hold_return_pct)}">${val(j.buy_hold_return_pct, "%")}</b></div>
+      <div class="muted tiny">${esc(j.symbol)} · ${esc(j.start_date)} → ${esc(j.end_date)} · ${j.trading_sessions} phiên hợp lệ · trạng thái ${esc(j.status || "")}</div>
+      <div class="bt-metrics" style="margin-top:8px">
+        <div><span class="muted tiny">Lợi suất chiến lược (${label})</span><b class="${tone(j.strategy_return_pct)}">${val(j.strategy_return_pct, "%")}</b></div>
+        <div><span class="muted tiny">Lãi/lỗ ròng</span><b class="${tone(j.strategy_return_pct)}">${fmt((j.summary || [])[2]?.stockinsight, "VND")}</b></div>
         <div><span class="muted tiny">Max Drawdown</span><b>${val(j.max_drawdown_pct, "%")}</b></div>
-        <div><span class="muted tiny">Số GD / Win rate</span><b>${j.trades} / ${j.win_rate_pct === null ? "N/A" : j.win_rate_pct.toFixed(1) + "%"}</b></div>
-        <div><span class="muted tiny">Phí, thuế & trượt giá ước tính</span><b>${money(j.total_costs_vnd)} VNĐ</b></div>
+        <div><span class="muted tiny">Số GD hoàn tất / Win rate</span><b>${j.trades} / ${j.win_rate_pct === null ? "N/A" : Number(j.win_rate_pct).toFixed(2) + "%"}</b></div>
       </div>
+      <div class="table-wrap" style="margin-top:10px">
+        <table class="table">
+          <thead><tr><th>Chỉ tiêu</th><th>StockInsight</th><th>Buy &amp; Hold</th><th>VN-Index</th></tr></thead>
+          <tbody>${summaryRows}</tbody>
+        </table>
+      </div>
+      ${op ? `<div class="comment warn" style="margin-top:10px"><b>Vị thế chưa đóng:</b> ${op.quantity} cp mua ngày ${esc(op.entry_date)} giá ${money(op.entry_price)} VNĐ; giá trị cuối kỳ ${money(op.market_value)} VNĐ (${val(op.unrealized_return_pct, "%")}). ${esc(op.note)}</div>` : ""}
       <div class="comment" style="margin-top:10px">${esc(j.method_note)}</div>
       <details style="margin-top:10px">
-        <summary class="muted tiny" style="cursor:pointer">Giao dịch gần nhất (${trades.length})</summary>
-        <div class="table-wrap" style="margin-top:8px">
-          <table class="table">
-            <thead><tr><th>Ngày mua</th><th>Giá mua</th><th>Ngày bán</th><th>Giá bán</th><th>Lợi suất ròng</th></tr></thead>
-            <tbody>${tradeRows}</tbody>
-          </table>
-        </div>
+        <summary class="muted tiny" style="cursor:pointer">Giao dịch hoàn tất (${trades.length})</summary>
+        <div class="table-wrap" style="margin-top:8px"><table class="table">
+          <thead><tr><th>Ngày mua</th><th>Giá mua</th><th>Ngày bán</th><th>Giá bán</th><th>KL</th><th>Lợi suất ròng</th></tr></thead>
+          <tbody>${tradeRows}</tbody></table></div>
       </details>
-      <div class="muted tiny" style="margin-top:8px">${esc(j.limitation || "")}</div>`;
+      <details style="margin-top:6px">
+        <summary class="muted tiny" style="cursor:pointer">Nhật ký lệnh (${orders.length})</summary>
+        <div class="table-wrap" style="margin-top:8px"><table class="table">
+          <thead><tr><th>Ngày tín hiệu</th><th>Lệnh</th><th>Ngày khớp</th><th>Giá khớp</th><th>KL</th><th>Phí</th><th>Thuế bán</th><th>Dòng tiền ròng</th><th>Tiền sau GD</th></tr></thead>
+          <tbody>${orderRows}</tbody></table></div>
+      </details>
+      <details style="margin-top:6px">
+        <summary class="muted tiny" style="cursor:pointer">Tín hiệu MUA/BÁN và trạng thái xử lý (${notable.length})</summary>
+        <div class="muted tiny" style="margin-top:6px">${counts}</div>
+        <div class="table-wrap" style="margin-top:8px"><table class="table">
+          <thead><tr><th>Ngày</th><th>Tín hiệu</th><th>Điểm</th><th>Ngày khớp</th><th>Trạng thái</th><th>Lý do</th></tr></thead>
+          <tbody>${signalRows}</tbody></table></div>
+      </details>
+      <div class="muted tiny" style="margin-top:8px">Chất lượng dữ liệu: thiếu giá ${dq.missing_price_rows ?? 0} dòng · giá không hợp lệ ${dq.invalid_price_rows ?? 0} · trùng ngày ${dq.duplicate_dates ?? 0} · lệnh không khớp ${dq.unexecuted_orders ?? 0}${(dq.warnings || []).length ? " · " + (dq.warnings || []).map(esc).join(" ") : ""}</div>
+      <div class="muted tiny" style="margin-top:6px">${esc(j.limitation || "")}</div>`;
       } catch (e) {
         box.innerHTML = `<span class="down">${esc(e.message || "Không chạy được backtest.")}</span>`;
       }

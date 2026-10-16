@@ -19,8 +19,9 @@ def test_industry_classification_metadata():
 def test_dashboard_sections_exist():
     text = Path("templates/investment_dashboard.html").read_text(encoding="utf-8")
     for phrase in (
-        "Thông tin doanh nghiệp", "Tin tức doanh nghiệp", "Bảng kiểm thử nhiều mã",
-        "Bảng nguồn dữ liệu", "vn-annual-report-miner", "/api/validate",
+        "Thông tin doanh nghiệp", "Tin tức doanh nghiệp", "Kiểm thử & So sánh",
+        "Bảng nguồn dữ liệu", "/api/validate", "Backtest 1 năm", "buy_checks",
+        "VN-Index", "SKIPPED", "Giả định Groq",
     ):
         assert phrase in text, phrase
 

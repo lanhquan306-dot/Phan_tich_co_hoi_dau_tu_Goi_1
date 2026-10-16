@@ -1,9 +1,10 @@
-"""Company metadata service using Vnstock Reference + Gemini AI Fallback."""
+"""Company metadata service using VNStock Reference + Groq AI fallback."""
 from __future__ import annotations
 
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 import pandas as pd
 from dotenv import load_dotenv
@@ -12,9 +13,6 @@ import stock_service as service
 from utils import normalize_text, to_float
 
 load_dotenv()
-API_KEY = os.getenv("GEMINI_API_KEY")
-PRIMARY_MODEL = "gemini-3.5-flash-lite"
-FALLBACK_MODEL = "gemini-3.8-flash"
 
 
 def _first(mapping: dict[str, Any], *names: str):
@@ -29,47 +27,27 @@ def _first(mapping: dict[str, Any], *names: str):
     return None
 
 
-def _enrich_company_with_gemini(symbol: str, company_name: str) -> dict[str, str]:
-    """Tự động dùng Gemini xác định ngành chuẩn và tóm tắt hoạt động kinh doanh khi dữ liệu sàn bị thiếu."""
-    if not API_KEY:
-        return {"industry": "", "profile": ""}
-
+def _enrich_company_with_groq(symbol: str, company_name: str) -> dict[str, str]:
+    """Dùng Groq để bổ sung ngành/mô tả khi dữ liệu VNStock thật sự thiếu."""
     try:
-        from google import genai
-        client = genai.Client(api_key=API_KEY)
-    except Exception:
-        return {"industry": "", "profile": ""}
-
-    prompt = f"""
+        from groq_service import FAST_MODEL, FALLBACK_MODEL, json_completion
+        prompt = f"""
 Bạn là chuyên gia dữ liệu chứng khoán Việt Nam.
 Hãy cung cấp thông tin ngắn gọn về doanh nghiệp sau:
 - Mã cổ phiếu: {symbol}
 - Tên công ty: {company_name or symbol}
 
 Yêu cầu:
-1. 'industry': Ngành kinh doanh cốt lõi cấp 2 (ví dụ: Bán buôn, Bán lẻ, Công nghệ thông tin, Bất động sản, Dầu khí, Ngân hàng, Thép, Hóa chất...). Rất ngắn gọn (2-4 từ).
-2. 'profile': Mô tả 2-4 mảng hoạt động kinh doanh chính dưới dạng các gạch đầu dòng ngắn (ví dụ: '- Thương mại và phân phối thiết bị công nghệ. - Dịch vụ Dầu khí. - Quản lý Bất động sản.').
-
-Chỉ trả về JSON hợp lệ:
-{{
-  "industry": "...",
-  "profile": "..."
-}}
+1. "industry": ngành kinh doanh cốt lõi cấp 2, rất ngắn gọn (2-4 từ).
+2. "profile": mô tả 2-4 mảng hoạt động kinh doanh chính bằng các gạch đầu dòng ngắn.
+Chỉ trả JSON: {{"industry":"...","profile":"..."}}
 """
-    for model_name in [PRIMARY_MODEL, FALLBACK_MODEL]:
-        try:
-            response = client.models.generate_content(model=model_name, contents=prompt)
-            text = (response.text or "").strip()
-            text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE).strip()
-            res = json.loads(text)
-            return {
-                "industry": str(res.get("industry") or "").strip(),
-                "profile": str(res.get("profile") or "").strip(),
-            }
-        except Exception as e:
-            continue
-
-    return {"industry": "", "profile": ""}
+        res = json_completion(prompt, primary_model=FAST_MODEL,
+                              fallback_model=FALLBACK_MODEL, max_tokens=500)
+        return {"industry": str(res.get("industry") or "").strip(),
+                "profile": str(res.get("profile") or "").strip()}
+    except Exception:
+        return {"industry": "", "profile": ""}
 
 
 def _fetch_business_profile_vci(symbol: str) -> str:
@@ -88,18 +66,6 @@ def _fetch_business_profile_vci(symbol: str) -> str:
     except Exception:
         pass
 
-    try:
-        from vnstock import Vnstock
-        stock = Vnstock().stock(symbol=s, source='VCI')
-        df_prof = stock.company.profile()
-        if df_prof is not None and not df_prof.empty:
-            p_row = df_prof.iloc[0].to_dict()
-            for col in ["business_model", "main_service", "history_dev"]:
-                val = str(p_row.get(col) or "").strip()
-                if val and val.lower() not in {"nan", "none", ""}:
-                    return val
-    except Exception:
-        pass
     return ""
 
 
@@ -109,37 +75,47 @@ def _load(symbol: str) -> dict[str, Any]:
     except ImportError:
         from vnstock.ui import Reference
 
-    company = Reference().company(symbol)
-    df = pd.DataFrame()
-    for method_name in ("overview", "info"):
-        method = getattr(company, method_name, None)
-        if not callable(method):
-            continue
+    def load_reference_frame() -> pd.DataFrame:
+        company = Reference().company(symbol)
+        df_local = pd.DataFrame()
+        for method_name in ("overview", "info"):
+            method = getattr(company, method_name, None)
+            if not callable(method):
+                continue
+            try:
+                value = service.vn_call(method)
+                candidate = service.flatten_columns(pd.DataFrame(value))
+                if not candidate.empty:
+                    return candidate
+            except Exception:
+                continue
+        return df_local
+
+    def load_vci_issued_share() -> float | None:
         try:
-            value = service.vn_call(method)
-            candidate = service.flatten_columns(pd.DataFrame(value))
-            if not candidate.empty:
-                df = candidate
-                break
+            from vnstock.explorer.vci.company import Company as VCICompany
+            comp = VCICompany(symbol)
+            df_ov = service.vn_call(comp.overview)
+            if df_ov is not None and not df_ov.empty:
+                r_ov = df_ov.iloc[0].to_dict()
+                sh = to_float(_first(r_ov, "issue_share", "issued_share", "shares_outstanding", "total_shares"))
+                if sh and sh > 0:
+                    return sh if sh < 50_000_000_000 else sh / 10_000.0
         except Exception:
-            continue
+            pass
+        return None
+
+    # Metadata Reference và số cổ phiếu VCI không phụ thuộc nhau.
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="company-meta") as pool:
+        ref_future = pool.submit(load_reference_frame)
+        issued_future = pool.submit(load_vci_issued_share)
+        df = ref_future.result()
+        issued = issued_future.result()
 
     row = df.iloc[0].to_dict() if not df.empty else {}
     listing = service._safe_listing().get(symbol, {})
 
 # 1. Tự động lấy số cổ phiếu lưu hành chuẩn xác (Ưu tiên VCI / BCTC)
-    issued = None
-    try:
-        from vnstock.explorer.vci.company import Company as VCICompany
-        comp = service.vn_call(VCICompany, symbol)
-        df_ov = service.vn_call(comp.overview)
-        if df_ov is not None and not df_ov.empty:
-            r_ov = df_ov.iloc[0].to_dict()
-            sh = to_float(_first(r_ov, "issue_share", "issued_share", "shares_outstanding", "total_shares"))
-            if sh and sh > 0:
-                issued = sh if sh < 50_000_000_000 else sh / 10_000.0
-    except Exception:
-        pass
 
     if issued is None or issued <= 0:
         sh = to_float(_first(row, 
@@ -157,7 +133,8 @@ def _load(symbol: str) -> dict[str, Any]:
     if issued is None or issued <= 0:
         try:
             from vnstock.explorer.vci.financial import Finance as VCIFinance
-            fin = service.vn_call(VCIFinance, symbol, period="quarter", get_all=False, show_log=False)
+            # Constructor local, chỉ method _get_financial_report mới gọi mạng.
+            fin = VCIFinance(symbol, period="quarter", get_all=False, show_log=False)
             bs = service.vn_call(fin._get_financial_report, "balance_sheet", period="quarter", lang="vi", dropna=False, show_log=False, limit=4)
             if bs is not None and not bs.empty:
                 bs_flat = service.flatten_columns(pd.DataFrame(bs))
@@ -184,13 +161,15 @@ def _load(symbol: str) -> dict[str, Any]:
     # 3. Lấy ngành: ưu tiên ICB cấp 2 của sàn
     industry = str(_first(row, "icb_name2", "icb_name_2") or listing.get("industry") or "").strip()
 
-    # 4. Tự động dùng Gemini nếu thiếu mô tả hoặc thiếu ngành
-    if not profile_desc or not industry or industry == "Bán lẻ":
-        gemini_info = _enrich_company_with_gemini(symbol, company_name)
+    # 4. Chỉ dùng Groq khi metadata thật sự thiếu.
+    # Bản cũ ép riêng ngành "Bán lẻ" gọi AI dù VNStock đã có đủ dữ liệu,
+    # khiến các mã như MWG luôn chịu thêm một request AI không cần thiết.
+    if not profile_desc or not industry:
+        groq_info = _enrich_company_with_groq(symbol, company_name)
         if not profile_desc:
-            profile_desc = gemini_info.get("profile", "")
-        if (not industry or industry == "Bán lẻ") and gemini_info.get("industry"):
-            industry = gemini_info["industry"]
+            profile_desc = groq_info.get("profile", "")
+        if not industry and groq_info.get("industry"):
+            industry = groq_info["industry"]
 
     return {
         "symbol": symbol,
@@ -236,6 +215,11 @@ def get_industry_peer_symbols(industry_code: str, exclude_symbol: str = "") -> l
     if not ind_target:
         return []
 
+    # Giữ nguyên tối đa 8 peer như bản gốc. Phần tối ưu quota nằm ở tầng gọi
+    # VNStock (không tính constructor local là API call) và tải ratio song song,
+    # nên không cần giảm mẫu peer/đổi logic median ngành.
+    peer_limit = 8
+
     for sym, meta in listing.items():
         if sym == exclude:
             continue
@@ -243,7 +227,7 @@ def get_industry_peer_symbols(industry_code: str, exclude_symbol: str = "") -> l
         # Khớp theo ngành cấp 2 / ICB
         if ind_target in cur_ind or cur_ind in ind_target:
             peers.append(sym)
-            if len(peers) >= 8:  # Giới hạn 8 mã tiêu biểu để tính toán nhanh nhất
+            if len(peers) >= peer_limit:
                 break
 
     # Dự phòng nếu không tìm thấy trong listing
